@@ -68,23 +68,18 @@ if [ ${#devlist[@]} -eq 0 ]; then
   usage
 fi
 
-for devpath in "${devlist[@]}"; do
-  parted -s $devpath mklabel gpt
+prep_device() {
+  devpath=$1
+  devtype=$2
+  sgdisk -Z $devpath
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
-    errorout "parted failed to wipe ${devpath} partition table with error code $RETVAL" $RETVAL
+    errorout "sgdisk failed to zap ${devpath} with error code $RETVAL" $RETVAL
   fi
-
-  fdisk $devpath &> /dev/null <<EOF
-n
-
-
-
-w
-EOF
+  sgdisk -n 0:0:0 -t 8300 -c 0:"Ceph $2 LVM" $devpath
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
-    errorout "fdisk failed to create the necessary partition on ${devpath} with error code $RETVAL" $RETVAL
+    errorout "sgdisk failed to create the necessary partition on ${devpath} with error code $RETVAL" $RETVAL
   fi
 
   pvcreate ${devpath}1 -y
@@ -98,6 +93,10 @@ EOF
   if [ $RETVAL -ne 0 ]; then
     errorout "vgcreate failed to create the Volume Group ceph-$(basename $devpath) with error code $RETVAL" $RETVAL
   fi
+}
+
+for devpath in "${devlist[@]}"; do
+  prep_device $devpath Collocated
 
   journalExtents=$((($1*1024)/4))
   lvcreate -l $journalExtents -n journal ceph-$(basename $devpath) ${devpath}1 -y
