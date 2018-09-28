@@ -41,6 +41,78 @@ Please add the following to the 'lvm_volumes:' section of /usr/share/ceph-ansibl
     journal: ceph-vdd/journal
 ```
 
+#### dedicated_lvm_osds.sh
+- This script creates LVM layout on a set of disks for deploying with `ceph-volume lvm` feature.
+- This script outputs the exact syntax needed to apply into the `lvm_volumes:` section of `/usr/share/ceph-ansible/group_vars/osds.yml`
+- Run with desired action, journal size, path to journal device and path(s) to data devices
+- NOTE: All 'data devices' will share the provided journal device.
+
+```
+./dedicated_lvm_osds.sh new 10 /dev/vde /dev/vd{b..d}
+./dedicated_lvm_osds.sh add 25 /dev/sdg /dev/sd{b..f}
+```
+
+###### Example:
+```
+# ./dedicated_lvm_osds.sh new 10 /dev/vde /dev/vd{b..d}
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+Creating new GPT entries.
+Setting name!
+partNum is 0
+REALLY setting name!
+The operation has completed successfully.
+  Physical volume "/dev/vde1" successfully created.
+  Volume group "ceph-vde" successfully created
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+Creating new GPT entries.
+Setting name!
+partNum is 0
+REALLY setting name!
+The operation has completed successfully.
+  Physical volume "/dev/vdb1" successfully created.
+  Volume group "ceph-vdb" successfully created
+  Logical volume "journal-vdb" created.
+  Wiping crypto_LUKS signature on /dev/ceph-vdb/data.
+  Logical volume "data" created.
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+Creating new GPT entries.
+Setting name!
+partNum is 0
+REALLY setting name!
+The operation has completed successfully.
+  Physical volume "/dev/vdc1" successfully created.
+  Volume group "ceph-vdc" successfully created
+  Logical volume "journal-vdc" created.
+  Wiping crypto_LUKS signature on /dev/ceph-vdc/data.
+  Logical volume "data" created.
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+Creating new GPT entries.
+Setting name!
+partNum is 0
+REALLY setting name!
+The operation has completed successfully.
+  Physical volume "/dev/vdd1" successfully created.
+  Volume group "ceph-vdd" successfully created
+  Logical volume "journal-vdd" created.
+  Wiping crypto_LUKS signature on /dev/ceph-vdd/data.
+  Logical volume "data" created.
+
+Creation Complete!
+
+Please add the following to the 'lvm_volumes:' section of /usr/share/ceph-ansible/group_vars/osds.yml
+
+  - data: ceph-vdb/data
+    journal: ceph-vde/journal-vdb
+  - data: ceph-vdc/data
+    journal: ceph-vde/journal-vdc
+  - data: ceph-vdd/data
+    journal: ceph-vde/journal-vdd
+```
+
 #### parse_historic_ops.py
 - This script parses the output of `ceph daemon osd.<id> dump_historic_ops` to show the op which took the longest time to complete for each slow event.
 - The output shows the time in seconds, time of log entry, the Operation type, the full event description ( client, object, etc )
