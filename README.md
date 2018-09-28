@@ -16,16 +16,34 @@ Miscellaneous scripts I created for various tasks with Ceph.
 ###### Example:
 ```
 # ./colo_lvm_osds.sh 10 /dev/vd{b..d}
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+Creating new GPT entries.
+Setting name!
+partNum is 0
+REALLY setting name!
   Physical volume "/dev/vdb1" successfully created.
   Volume group "ceph-vdb" successfully created
   Wiping crypto_LUKS signature on /dev/ceph-vdb/journal.
   Logical volume "journal" created.
   Logical volume "data" created.
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+Creating new GPT entries.
+Setting name!
+partNum is 0
+REALLY setting name!
   Physical volume "/dev/vdc1" successfully created.
   Volume group "ceph-vdc" successfully created
   Wiping crypto_LUKS signature on /dev/ceph-vdc/journal.
   Logical volume "journal" created.
   Logical volume "data" created.
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+Creating new GPT entries.
+Setting name!
+partNum is 0
+REALLY setting name!
   Physical volume "/dev/vdd1" successfully created.
   Volume group "ceph-vdd" successfully created
   Wiping crypto_LUKS signature on /dev/ceph-vdd/journal.
