@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-import sys
-import simplejson as json
+import sys, json
 from datetime import datetime
 
 
