@@ -12,6 +12,7 @@ for op in obj["Ops"]:
     longestop=""
     longestdt=""
     longestsec=0
+    subopstart=0
     firstdt=""
     for event in op["type_data"]["events"]:
         if(firstdt==""):
@@ -22,6 +23,11 @@ for op in obj["Ops"]:
             if(lastepoch==0):
                 lastepoch=gmtime
             timespent[event["event"]]={ 'delta':(gmtime-lastepoch), 'lastepoch': gmtime, 'lastdt':event["time"] }
+            if(event["event"][:23]=="waiting for subops from"):
+                subopstart=gmtime
+            elif(event["event"][:22]=="sub_op_commit_rec from"):
+                timespent[event["event"]]={ 'delta':(gmtime-subopstart), 'lastepoch': gmtime, 'lastdt':event["time"] }
+
         else:
             timespent[event["event"]]['delta']+=gmtime-timespent[event["event"]]["lastepoch"]
             timespent[event["event"]]["lastepoch"]=gmtime

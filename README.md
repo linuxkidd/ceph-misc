@@ -156,8 +156,8 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
           0.0001 2018-10-02 05:57:19.184058 journaled_completion_queued
           0.0019 2018-10-02 05:57:19.185953 op_commit
           0.0000 2018-10-02 05:57:19.185967 op_applied
-          1.7035 2018-10-02 05:57:20.889458 sub_op_commit_rec from 250
-          0.0007 2018-10-02 05:57:20.890195 sub_op_commit_rec from 137
+          1.7058 2018-10-02 05:57:20.889458 sub_op_commit_rec from 250
+          1.7066 2018-10-02 05:57:20.890195 sub_op_commit_rec from 137
           0.0001 2018-10-02 05:57:20.890274 commit_sent
           0.0000 2018-10-02 05:57:20.890306 done
 2018-10-02 05:56:55.854901 osd_op(client.46802596.0:14766757 3.39828228 3:1441419c:::rbd_data.b9722b2e598557.00000000000000ab:head [stat,set-alloc-hint object_size 4194304 write_size 4194304,write 1978368~118784] snapc 0=[] ack+ondisk+write+known_if_redirected e49197)
@@ -172,8 +172,8 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
           0.0002 2018-10-02 05:57:20.919791 journaled_completion_queued
           0.0001 2018-10-02 05:57:20.919847 op_commit
           0.0003 2018-10-02 05:57:20.920168 op_applied
-          0.0077 2018-10-02 05:57:20.927876 sub_op_commit_rec from 137
-          0.0003 2018-10-02 05:57:20.928153 sub_op_commit_rec from 250
+          0.0086 2018-10-02 05:57:20.927876 sub_op_commit_rec from 137
+          0.0088 2018-10-02 05:57:20.928153 sub_op_commit_rec from 250
           0.0000 2018-10-02 05:57:20.928183 commit_sent
           0.0000 2018-10-02 05:57:20.928190 done
 2018-10-02 05:56:55.858645 osd_op(client.46802596.0:14766758 3.39828228 3:1441419c:::rbd_data.b9722b2e598557.00000000000000ab:head [stat,set-alloc-hint object_size 4194304 write_size 4194304,write 2666496~4096] snapc 0=[] ack+ondisk+write+known_if_redirected e49197)
@@ -188,8 +188,8 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
           0.0001 2018-10-02 05:57:20.930351 journaled_completion_queued
           0.0001 2018-10-02 05:57:20.930453 op_commit
           0.0002 2018-10-02 05:57:20.930677 op_applied
-          0.0024 2018-10-02 05:57:20.933037 sub_op_commit_rec from 250
-          0.0000 2018-10-02 05:57:20.933063 sub_op_commit_rec from 137
+          0.0030 2018-10-02 05:57:20.933037 sub_op_commit_rec from 250
+          0.0031 2018-10-02 05:57:20.933063 sub_op_commit_rec from 137
           0.0000 2018-10-02 05:57:20.933108 commit_sent
           0.0000 2018-10-02 05:57:20.933125 done
 ```
