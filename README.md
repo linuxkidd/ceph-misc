@@ -136,7 +136,7 @@ Please add the following to the 'lvm_volumes:' section of /usr/share/ceph-ansibl
 
 #### parse_historic_ops.py
 - This script parses the output of `ceph daemon osd.<id> dump_historic_ops` to show the total time spent in each event for each slow op.
-- The output shows Date/Time of the start of the Op followed by the Op description, then 1 line for each op type along with the cumulative time in seconds per op type.
+- The output shows Date/Time of the start of the Op followed by the Op description, then 1 line for each op type along with the cumulative time in seconds and completed time per op type.
 
 ```
 ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
@@ -145,51 +145,51 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
 ```
 # ceph daemon osd.104 dump_historic_ops | ./parse_historic_ops.py
 2018-10-02 05:56:55.795025 osd_op(client.46802596.0:14766739 3.39828228 3:1441419c:::rbd_data.b9722b2e598557.00000000000000ab:head [stat,set-alloc-hint object_size 4194304 write_size 4194304,write 2580480~86016] snapc 0=[] ack+ondisk+write+known_if_redirected e49197)
-         23.3879 reached_pg
-          1.7035 sub_op_commit_rec from 250
-          0.0019 op_commit
-          0.0007 sub_op_commit_rec from 137
-          0.0003 commit_queued_for_journal_write
-          0.0003 waiting for rw locks
-          0.0003 queued_for_pg
-          0.0001 journaled_completion_queued
-          0.0001 waiting for subops from 137,250
-          0.0001 commit_sent
-          0.0000 started
-          0.0000 done
-          0.0000 write_thread_in_journal_buffer
-          0.0000 op_applied
-          0.0000 initiated
+        1538459815.7950 2018-10-02 05:56:55.795025 initiated
+         23.3882 2018-10-02 05:57:19.183485 reached_pg
+         20.8710 2018-10-02 05:57:18.852467 waiting for rw locks
+          1.7035 2018-10-02 05:57:20.889458 sub_op_commit_rec from 250
+          0.0019 2018-10-02 05:57:19.185953 op_commit
+          0.0007 2018-10-02 05:57:20.890195 sub_op_commit_rec from 137
+          0.0003 2018-10-02 05:57:19.183932 commit_queued_for_journal_write
+          0.0003 2018-10-02 05:56:55.795327 queued_for_pg
+          0.0001 2018-10-02 05:57:19.184058 journaled_completion_queued
+          0.0001 2018-10-02 05:57:19.183624 waiting for subops from 137,250
+          0.0001 2018-10-02 05:57:20.890274 commit_sent
+          0.0000 2018-10-02 05:57:19.183526 started
+          0.0000 2018-10-02 05:57:20.890306 done
+          0.0000 2018-10-02 05:57:19.183950 write_thread_in_journal_buffer
+          0.0000 2018-10-02 05:57:19.185967 op_applied
 2018-10-02 05:56:55.854901 osd_op(client.46802596.0:14766757 3.39828228 3:1441419c:::rbd_data.b9722b2e598557.00000000000000ab:head [stat,set-alloc-hint object_size 4194304 write_size 4194304,write 1978368~118784] snapc 0=[] ack+ondisk+write+known_if_redirected e49197)
-         25.0636 reached_pg
-          0.0077 sub_op_commit_rec from 137
-          0.0004 waiting for rw locks
-          0.0003 op_applied
-          0.0003 commit_queued_for_journal_write
-          0.0003 sub_op_commit_rec from 250
-          0.0003 queued_for_pg
-          0.0002 journaled_completion_queued
-          0.0001 waiting for subops from 137,250
-          0.0001 op_commit
-          0.0001 started
-          0.0000 commit_sent
-          0.0000 write_thread_in_journal_buffer
-          0.0000 done
-          0.0000 initiated
+        1538459815.8549 2018-10-02 05:56:55.854901 initiated
+         25.0640 2018-10-02 05:57:20.919182 reached_pg
+         21.2026 2018-10-02 05:57:19.184133 waiting for rw locks
+          0.0077 2018-10-02 05:57:20.927876 sub_op_commit_rec from 137
+          0.0003 2018-10-02 05:57:20.920168 op_applied
+          0.0003 2018-10-02 05:57:20.919609 commit_queued_for_journal_write
+          0.0003 2018-10-02 05:57:20.928153 sub_op_commit_rec from 250
+          0.0003 2018-10-02 05:56:55.855158 queued_for_pg
+          0.0002 2018-10-02 05:57:20.919791 journaled_completion_queued
+          0.0001 2018-10-02 05:57:20.919315 waiting for subops from 137,250
+          0.0001 2018-10-02 05:57:20.919847 op_commit
+          0.0001 2018-10-02 05:57:20.919233 started
+          0.0000 2018-10-02 05:57:20.928183 commit_sent
+          0.0000 2018-10-02 05:57:20.919628 write_thread_in_journal_buffer
+          0.0000 2018-10-02 05:57:20.928190 done
 2018-10-02 05:56:55.858645 osd_op(client.46802596.0:14766758 3.39828228 3:1441419c:::rbd_data.b9722b2e598557.00000000000000ab:head [stat,set-alloc-hint object_size 4194304 write_size 4194304,write 2666496~4096] snapc 0=[] ack+ondisk+write+known_if_redirected e49197)
-         25.0707 reached_pg
-          0.0024 sub_op_commit_rec from 250
-          0.0003 waiting for rw locks
-          0.0003 commit_queued_for_journal_write
-          0.0002 op_applied
-          0.0002 queued_for_pg
-          0.0001 op_commit
-          0.0001 waiting for subops from 137,250
-          0.0001 journaled_completion_queued
-          0.0000 commit_sent
-          0.0000 started
-          0.0000 sub_op_commit_rec from 137
-          0.0000 write_thread_in_journal_buffer
-          0.0000 done
-          0.0000 initiated
+        1538459815.8586 2018-10-02 05:56:55.858645 initiated
+         25.0711 2018-10-02 05:57:20.929862 reached_pg
+         21.2025 2018-10-02 05:57:19.184197 waiting for rw locks
+          0.0024 2018-10-02 05:57:20.933037 sub_op_commit_rec from 250
+          0.0003 2018-10-02 05:57:20.930271 commit_queued_for_journal_write
+          0.0002 2018-10-02 05:57:20.930677 op_applied
+          0.0002 2018-10-02 05:56:55.858803 queued_for_pg
+          0.0001 2018-10-02 05:57:20.930453 op_commit
+          0.0001 2018-10-02 05:57:20.929992 waiting for subops from 137,250
+          0.0001 2018-10-02 05:57:20.930351 journaled_completion_queued
+          0.0000 2018-10-02 05:57:20.933108 commit_sent
+          0.0000 2018-10-02 05:57:20.929906 started
+          0.0000 2018-10-02 05:57:20.933063 sub_op_commit_rec from 137
+          0.0000 2018-10-02 05:57:20.930293 write_thread_in_journal_buffer
+          0.0000 2018-10-02 05:57:20.933125 done
 ```
