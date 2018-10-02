@@ -7,6 +7,7 @@ from datetime import datetime
 obj=json.load(sys.stdin)
 
 for op in obj["Ops"]:
+    timespent={}
     lastepoch=0
     longestop=""
     longestdt=""
@@ -18,9 +19,12 @@ for op in obj["Ops"]:
             delta=gmtime-lastepoch
         else:
             delta=0
+        if(event["event"] not in timespent):
+            timespent[event["event"]]=0
+        timespent[event["event"]]+=delta
         lastepoch=gmtime
-        if(delta>longestsec):
-            longestsec=delta
+        if(timespent[event["event"]]>longestsec):
+            longestsec=timespent[event["event"]]
             longestdt=event["time"]
             longestop=event["event"]
     print("{0:8.4f},{1:s},{2:s},{3:s}".format(longestsec,longestdt,longestop,op["description"]))
