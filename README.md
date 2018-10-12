@@ -134,6 +134,35 @@ Please add the following to the 'lvm_volumes:' section of /usr/share/ceph-ansibl
     journal: ceph-vde/journal-vdd
 ```
 
+#### find_upmap_items.py
+- This script parses the output of `ceph report` to show PGs which have upmap items
+```
+ceph report | ./find_upmap_items.py
+```
+###### Example:
+```
+# ceph report | ./find_upmap_items.py
+12.a
+12.14
+13.1
+13.3
+15.0
+15.1
+15.2
+15.4
+15.6
+15.7
+15.9
+15.a
+15.10
+15.11
+15.13
+15.15
+15.17
+15.23
+...
+```
+
 #### parse_historic_ops.py
 - This script parses the output of `ceph daemon osd.<id> dump_historic_ops` to show the total time spent in each event for each slow op.
 - The output shows Date/Time of the start of the Op followed by the Op description, then 1 line for each op type along with the cumulative time in seconds and completed time per op type.
@@ -192,10 +221,4 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
           0.0031 2018-10-02 05:57:20.933063 sub_op_commit_rec from 137
           0.0000 2018-10-02 05:57:20.933108 commit_sent
           0.0000 2018-10-02 05:57:20.933125 done
-```
-
-#### find_upmap_items.py
-- This script parses the output of `ceph report` to show PGs which have upmap items
-```
-ceph report | ./find_upmap_items.py
 ```
