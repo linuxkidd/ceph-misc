@@ -193,3 +193,9 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
           0.0000 2018-10-02 05:57:20.933108 commit_sent
           0.0000 2018-10-02 05:57:20.933125 done
 ```
+
+#### find_upmap_items.py
+- This script parses the output of `ceph report` to show PGs which have upmap items
+```
+ceph report | ./find_upmap_items.py
+```
