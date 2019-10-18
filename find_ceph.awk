@@ -1,4 +1,14 @@
 #!/usr/bin/awk -f
+#
+# Presuming you have an sosreport output structure like:
+#   $hostname/sosreport_contents
+# Run:
+#   # cat */ps | find_ceph.awk
+#
+# From the directory with multiple $hostname sosreport output directories
+#
+#
+#
 
 {
     split($1,a,":");
