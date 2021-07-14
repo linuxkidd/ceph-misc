@@ -24,7 +24,7 @@ Example:
 import argparse,boto,datetime,json,os,re,subprocess,sys
 import boto.s3.connection
 
-cephargs=os.environ.get('CEPH_ARGS')
+cephargs=os.environ.get('CEPH_ARGS').split(" ")
 
 def log_output(message):
     print('{0:%Y-%m-%d %H:%M:%S} {1:s}'.format(datetime.datetime.now(),message))
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     log_output("Fetching user list from radosgw-admin...")
     command=['radosgw-admin', 'user', 'list']
     if cephargs!=None:
-        command.append(cephargs)
+        command.extend(cephargs)
 
     if debug:
         log_output("DEBUG: {0:s}".format(" ".join(command)))
@@ -117,7 +117,7 @@ if __name__ == "__main__":
         command=None
         command=['radosgw-admin', 'user', 'info', '--uid', user]
         if cephargs!=None:
-            command.append(cephargs)
+            command.extend(cephargs)
 
         if debug:
             log_output("DEBUG: {0:s}".format(" ".join(command)))
