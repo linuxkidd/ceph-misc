@@ -56,7 +56,7 @@ def test_user(access_key,secret_key):
                 log_output("DEBUG: Policy {0:s}".format(json.dumps(mypolicy)))
 
             for st in mypolicy["Statement"]:
-                if not re.match('^arn:aws:iam:.*:.*:user\/.*$',st["Principal"]["AWS"]):
+                if not re.match('^arn:aws:iam:[^:]*:[^:]*:user\/[^:]*$',st["Principal"]["AWS"]):
                     log_output("Bad policy principal detected on bucket {0:s}: {1:s}".format(bucket.name,json.dumps(st)))
                     badpolicy+=1
                 else:
