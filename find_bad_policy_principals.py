@@ -30,7 +30,7 @@ def log_output(message):
     print('{0:%Y-%m-%d %H:%M:%S} {1:s}'.format(datetime.datetime.now(),message))
 
 def test_user(access_key,secret_key):
-    global bucketcount,bucketmod,badpolicy,s3host,s3port,s3secure,user,usercount
+    global bucketcount,bucketmod,badpolicy,debug,s3host,s3port,s3secure,user,usercount,userlen
     conn = boto.connect_s3(
             aws_access_key_id = access_key,
             aws_secret_access_key = secret_key,
@@ -42,18 +42,26 @@ def test_user(access_key,secret_key):
 
     for bucket in conn.get_all_buckets():
         bucketcount+=1
+        if debug:
+            log_output("DEBUG: Bucket {0:s}".format(bucket.name))
+
         if bucketcount%1000==0:
-            log_output("Progress report: {0:d} users, {1:d} buckets, {2:d} bad policies found.  Current user: {3:s}, bucket: {4:s}".format(usercount,bucketcount,badpolicy,user,bucket.name))
+            log_output("Progress report: {0:d} of {1:d} users, {2:d} buckets, {3:d} bad policies found.  Current user: {4:s}, bucket: {5:s}".format(usercount,userlen,bucketcount,badpolicy,user,bucket.name))
         try:
             mypolicy=json.loads(bucket.get_policy().decode('utf8'))
         except:
             pass
         else:
+            if debug:
+                log_output("DEBUG: Policy {0:s}".format(json.dumps(mypolicy)))
+
             for st in mypolicy["Statement"]:
                 if not re.match('^arn:aws:iam:.*:.*:user\/.*$',st["Principal"]["AWS"]):
                     log_output("Bad policy principal detected on bucket {0:s}: {1:s}".format(bucket.name,json.dumps(st)))
                     badpolicy+=1
-
+                else:
+                    if debug:
+                        log_output("DEBUG: Principal {0:s} is good.".format(st["Principal"]["AWS"]))
 
 '''
 Main
@@ -65,16 +73,18 @@ if __name__ == "__main__":
         description='Script to identify improperly formatted Policy Principals.  Please see\nhttps://tracker.ceph.com/issues/46078 for details on the bug this is to\nhelp address.',
         epilog="NOTE:\n  If additional arguments are required for radosgw-admin to execute,\n  please set them in CEPH_ARGS environment variable BEFORE runnint this\n  script.\n\nExample:\n\n  # export CEPH_ARGS='--cluster prod'\n  # {0:s}".format(sys.argv[0]))
     parser.add_argument("-b", "--buckets",  default = 1000, type=int, help="Progress report every X buckets ( default: 1000 )")
+    parser.add_argument("-d", "--debug",    action = 'store_true',    help="Set for debug level output ( default: not-set )")
     parser.add_argument("-n", "--hostname", required = True,          help="S3 Host Name or IP ( required parameter )")
     parser.add_argument("-p", "--port",     default = 8080, type=int, help="S3 Port ( default: 8080 ")
     parser.add_argument("-s", "--secure",   action = 'store_true',    help="Set if using SSL/TLS ( default: not-set )")
     parser.add_argument("-u", "--users",    default = 1000, type=int, help="Progress report every X users ( default: 1000 )")
     args = parser.parse_args()
 
+    bucketmod = args.buckets
+    debug     = args.debug
     s3host    = args.hostname
     s3port    = args.port
     s3secure  = args.secure
-    bucketmod = args.buckets
     usermod   = args.users
 
     usercount=0
@@ -85,30 +95,41 @@ if __name__ == "__main__":
     command=['radosgw-admin', 'user', 'list']
     if cephargs!=None:
         command.append(cephargs)
-    
+
+    if debug:
+        log_output("DEBUG: {0:s}".format(" ".join(command)))
+
     try:
         users=json.loads(subprocess.run(command, stdout=subprocess.PIPE).stdout)
     except:
         log_output("FAILED")
         quit()
     else:
-        log_output("Done")
-    
+        log_output("Done. {0:d} users returned.".format(len(users)))
+
+    userlen=len(users)
+
     for user in users:
         usercount+=1
         if usercount%usermod==0:
-            log_output("Progress report: {0:d} users, {1:d} buckets, {2:d} bad policies found.  Current user: {3:s}".format(usercount,bucketcount,badpolicy,user))
-    
+            log_output("Progress report: {0:d} of {1:d} users, {2:d} buckets, {3:d} bad policies found.  Current user: {4:s}".format(usercount,userlen,bucketcount,badpolicy,user))
+
         command=None
-        command=['radosgw-admin', 'user', 'info', '--uid', users[0]]
+        command=['radosgw-admin', 'user', 'info', '--uid', user]
         if cephargs!=None:
             command.append(cephargs)
-    
+
+        if debug:
+            log_output("DEBUG: {0:s}".format(" ".join(command)))
+
         try:
             userinfo=json.loads(subprocess.run(command, stdout=subprocess.PIPE).stdout)
         except:
             log_output("FAIL: 'radosgw-admin user info --uid {0:s} failed.".format(user))
         else:
+            if debug:
+                log_output("DEBUG: user info: {0:s}".format(json.dumps(userinfo)))
+
             test_user(userinfo['keys'][0]['access_key'],userinfo['keys'][0]['secret_key'])
     
     log_output("Processing done: {0:d} users, {1:d} buckets, {2:d} bad policies found.".format(usercount,bucketcount,badpolicy))
