@@ -34,5 +34,6 @@ for op in obj["Ops"]:
             timespent[event["event"]]["lastdt"]=event["time"]
         lastepoch=gmtime
     print("{0} {1}".format(firstdt,op["description"]))
+    print("\tAge: {0} / Duration: {1}".format(op["age"],op["duration"]))
     for event, edata in sorted(timespent.iteritems(), key=lambda (k,v): (v["lastepoch"],k)):
         print("\t{0:8.4f} {1:s} {2:s}".format(edata["delta"],edata["lastdt"],event))
