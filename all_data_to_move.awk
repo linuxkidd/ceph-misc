@@ -3,7 +3,12 @@
 # Pipe the output of 'ceph pg dump' into this script.
 #
 # Dumps the listing of data counts going to / moving from
-# each OSD ID during backfill/recovery operations.
+# each OSD ID with data remaining to move during
+# backfill/recovery operations.
+#
+# Output format is CSV -- you'll likely want to redirect
+# the output to a file, then open with Excel / LibreCalc
+# or similar.
 #
 # NOTE: Total gigabytes output assumes replicated pool,
 # for EC, divide the value by K ( EC K+M ) to get a 'close'
@@ -22,6 +27,7 @@
 # Example, pool 3 is EC 8+3, but the rest are replicated
 #  ceph pg dump | grep ^3\\. | ./all_data_to_move.awk -v k=8
 #  ceph pg dump | grep -v ^3\\. | ./all_data_to_move.awk
+#
 #
 
 BEGIN { 
