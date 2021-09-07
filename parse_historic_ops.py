@@ -6,7 +6,7 @@ from datetime import datetime
 
 obj=json.load(sys.stdin)
 
-for op in obj["Ops"]:
+for op in obj["ops"]:
     timespent={}
     lastepoch=0
     longestop=""
