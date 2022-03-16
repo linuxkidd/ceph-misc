@@ -1,9 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Filename: update_rbd_directory.py
 Written by: Michael J. Kidd aka linuxkidd
-Version: 2.0
+Version: 2.1
 Last modified: 2022-03-16
+
+Changelog:
+ - 2022-03-15 v1.0, python2 only version released (vis gist)
+ - 2022-03-16 v2.0, python3 and cli arguments parsing added
+ - 2022-03-16 v2.1, fixed bytes conversion glitch, added '-f' option
 
 Usage help:
   ./update_rbd_directory.py --help
@@ -37,6 +42,20 @@ antifield={ "name":"id", "id":"name" }
 fields={}
 
 """
+appendOmap(fields,myfield):
+ - fields   == dictionary with 'name' and 'id' values
+ - myfield  == the current field, either 'name' or 'id', being checked
+
+The key == value pair are appended to the 'keys' / 'values'
+global variables for addition by addOmap() function.
+"""
+def appendOmap(fields,myfield):
+    needed_count[myfield]+=1
+    keys.append("{}_{}".format(myfield,fields[myfield]))
+    values.append("{}{}".format(struct.pack('<I',len(fields[antifield[myfield]])).decode('ascii'),fields[antifield[myfield]]))
+
+
+"""
 checkIter(iterator, fields, myfield)
  - iterator == ioctx iterator returned from 'get_omap_vals_by_keys'
  - fields   == dictionary with 'name' and 'id' values
@@ -44,8 +63,7 @@ checkIter(iterator, fields, myfield)
 
 Try to iterate the omap key, if there are no values, the StopIteration
 exception is thrown, meaning the omap key is missing and needs to be 
-created.  The key == value pair are appended to the 'keys' / 'values'
-global variables for addition by addOmap() function.
+created.
 """
 
 def checkIter(iter,fields,myfield):
@@ -54,10 +72,7 @@ def checkIter(iter,fields,myfield):
     except StopIteration:
         # Always report the name, since the ID is harder to understand.
         print("Missing {} entry {}".format(myfield,fields['name']))
-
-        needed_count[myfield]+=1
-        keys.append("{}_{}".format(myfield,fields[myfield]))
-        values.append("{}{}".format(struct.pack('<I',len(fields[antifield[myfield]])),fields[antifield[myfield]]))
+        appendOmap(fields,myfield)
 
 """
 loopRados(ioctx)
@@ -74,11 +89,16 @@ def loopRados(ioctx):
         if object.key[:7]=="rbd_id.":
             myrbd = rbd.Image(ioctx,name=object.key[7:])
             fields={ "name": myrbd.get_name(), "id": myrbd.id() }
-            with rados.ReadOpCtx() as read_op:
+            if args.force:
                 for myfield in antifield.keys():
-                    iter, ret = ioctx.get_omap_vals_by_keys(read_op, tuple(["{}_{}".format(myfield,fields[myfield]),]))
-                    ioctx.operate_read_op(read_op,"rbd_directory")
-                    checkIter(iter,fields,myfield)
+                   print("Forcing {} entry for {}".format(myfield,fields['name']))
+                   appendOmap(fields,myfield)
+            else:
+                with rados.ReadOpCtx() as read_op:
+                    for myfield in antifield.keys():
+                        iter, ret = ioctx.get_omap_vals_by_keys(read_op, tuple(["{}_{}".format(myfield,fields[myfield]),]))
+                        ioctx.operate_read_op(read_op,"rbd_directory")
+                        checkIter(iter,fields,myfield)
 
 """
 addOmap(ioctx)
@@ -104,6 +124,7 @@ def addOmap(ioctx):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--conf",     default = "/etc/ceph/ceph.conf", help="Ceph config file to use ( default: /etc/ceph/ceph.conf )")
+    parser.add_argument("-f", "--force",    action = 'store_true',           help="Force refresh of all OMAP entries ( default: not-set )")
     parser.add_argument("-p", "--pool",     default = "rbd",                 help="Pool to use for RBD directory correction ( default: rbd )")
     args = parser.parse_args()
 
