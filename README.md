@@ -236,14 +236,13 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
 - This script repairs missing omap entries on `rbd_directory`, which are used by `rbd ls` command for listing RBDs
 - Usage help: ./update_rbd_directory.py --help
 ```
-usage: update_rbd_directory.py [-h] [-c CONF] [-p POOL]
+usage: update_rbd_directory.py [-h] [-c CONF] [-f] [-p POOL]
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
-  -c CONF, --conf CONF  Ceph config file to use ( default: /etc/ceph/ceph.conf
-                        )
-  -p POOL, --pool POOL  Pool to use for RBD directory correction ( default:
-                        rbd )
+  -c CONF, --conf CONF  Ceph config file to use ( default: /etc/ceph/ceph.conf )
+  -f, --force           Force refresh of all OMAP entries ( default: not-set )
+  -p POOL, --pool POOL  Pool to use for RBD directory correction ( default: rbd )
 ```
 
 ##### Example:
