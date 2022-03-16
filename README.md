@@ -222,3 +222,79 @@ ceph daemon osd.<id> dump_historic_ops | ./parse_historic_ops.py
           0.0000 2018-10-02 05:57:20.933108 commit_sent
           0.0000 2018-10-02 05:57:20.933125 done
 ```
+
+#### update_rbd_directory.py
+- This script repairs missing omap entries on `rbd_directory`, which are used by `rbd ls` command for listing RBDs
+- Usage help: ./update_rbd_directory.py --help
+```
+usage: update_rbd_directory.py [-h] [-c CONF] [-p POOL]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -c CONF, --conf CONF  Ceph config file to use ( default: /etc/ceph/ceph.conf
+                        )
+  -p POOL, --pool POOL  Pool to use for RBD directory correction ( default:
+                        rbd )
+```
+
+##### Example:
+```
+[root@mons-0 ~]# rbd create --size 10 rbd/linuxkidd-test
+
+[root@mons-0 ~]# rbd -p rbd ls
+linuxkidd-test
+
+[root@mons-0 ~]# rbd -p rbd ls -l
+NAME           SIZE   PARENT FMT PROT LOCK 
+linuxkidd-test 10 MiB          2
+
+[root@mons-0 ~]# rados -p rbd listomapvals rbd_directory
+id_131d41d5a28b
+value (18 bytes) :
+00000000  0e 00 00 00 6c 69 6e 75  78 6b 69 64 64 2d 74 65  |....linuxkidd-te|
+00000010  73 74                                             |st|
+00000012
+
+name_linuxkidd-test
+value (16 bytes) :
+00000000  0c 00 00 00 31 33 31 64  34 31 64 35 61 32 38 62  |....131d41d5a28b|
+00000010
+
+[root@mons-0 ~]# ./update_rbd_directory.py 
+No missing entries.
+
+[root@mons-0 ~]# rados -p rbd rmomapkey rbd_directory name_linuxkidd-test
+[root@mons-0 ~]# rados -p rbd rmomapkey rbd_directory id_131d41d5a28b
+[root@mons-0 ~]# rbd -p rbd ls
+[root@mons-0 ~]# rbd -p rbd ls -l
+[root@mons-0 ~]# rados -p rbd ls
+rbd_object_map.131d41d5a28b
+rbd_directory
+rbd_id.linuxkidd-test
+rbd_info
+rbd_header.131d41d5a28b
+
+[root@mons-0 ~]# ./update_rbd_directory.py 
+Missing name entry linuxkidd-test
+Missing id entry 131d41d5a28b
+Added 1 name entries, and 1 id entries.
+
+[root@mons-0 ~]# rados -p rbd listomapvals rbd_directory
+id_131d41d5a28b
+value (18 bytes) :
+00000000  0e 00 00 00 6c 69 6e 75  78 6b 69 64 64 2d 74 65  |....linuxkidd-te|
+00000010  73 74                                             |st|
+00000012
+
+name_linuxkidd-test
+value (16 bytes) :
+00000000  0c 00 00 00 31 33 31 64  34 31 64 35 61 32 38 62  |....131d41d5a28b|
+00000010
+
+[root@mons-0 ~]# rbd -p rbd ls
+linuxkidd-test
+
+[root@mons-0 ~]# rbd -p rbd ls -l
+NAME           SIZE   PARENT FMT PROT LOCK 
+linuxkidd-test 10 MiB          2
+```
