@@ -1,6 +1,15 @@
 # ceph-misc
 Miscellaneous scripts I created for various tasks with Ceph.
 
+## Table of Contents:
+- [colo_lvm_osds.sh](#colo_lvm_osdssh)
+- [dedicated_lvm_osds.sh](#dedicated_lvm_osdssh)
+- [find_upmap_items.py](#find_upmap_itemspy)
+- [parse_historic_ops.py](#parse_historic_opspy)
+- [update_rbd_direcotry.py](#update_rbd_directorypy)
+
+Missing documents for a script?  Check the file contents for more details.
+
 ## Tool Explanations:
 
 #### colo_lvm_osds.sh
