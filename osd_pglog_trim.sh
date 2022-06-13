@@ -3,22 +3,34 @@
 usage() {
   cat <<EOF >&2
 
-Usage: $0 -o <osdid> [-i <imageurl>] [-m <maxPGLog>] [-p <pgid>]
+Usage: $0 -o <osdid> [-f <0|1>] [-i <imageurl>] [-m <maxPGLog>] [-p <pgid>] [-d <0|1>]
 
 Where:
-    <osdid>    is the numeric ID of the OSD to run against.
-               (required)
+    -o <osdid>    is the numeric ID of the OSD to run against.
+                  ( required )
 
-    <imageurl> is the image address to run the trim shell with.
-               (optional, default is system default image)
+    -f <0|1>      Set to 1 to enable setting / unsetting 'noout' flag.
+                  ( optional, default 0 - NOT set/unset 'nooup' flag )
 
-    <maxPGlog> is the value for osd_pg_log_trim_max
-               ( optional, default 500000 )
+    -i <imageurl> is the image address to run the trim shell with.
+                  ( optional, default is system default image )
 
-    <pgid>     is the Placement Group to Trim
-               ( optional, default is trim all PGs on the OSD)
+    -m <maxPGlog> is the value for osd_pg_log_trim_max
+                  ( optional, default 500000 )
 
-    NOTE: This OSD will be stopped for some period of time, then restarted.
+    -p <pgid>     is the Placement Group to Trim
+                  ( optional, default is trim all PGs on the OSD )
+
+    -d <0|1>      Set to 1 to enable post-trim PGlog dump
+	          ( optional, default is 0 - not generate post-trim PGlog dump )
+
+    NOTES:
+     - The specified OSD will be stopped for some period of time, then restarted.
+     - If '-f 1' is NOT specified, recommend setting 'noout' flag before, then unsetting after.
+       #-- Before --
+       # ceph osd set noout
+       #-- After --
+       # ceph osd unset noout
 
 EOF
   exit 1
@@ -41,15 +53,26 @@ maxtrim=500000
 allpgs=1
 pgid=""
 error=0
+posttrimdump=0
+manageflags=0
 
-while getopts ":o:i:m:p:" o; do
+while getopts ":o:i:m:p:d:f:" o; do
   case "${o}" in
-    o)
-      if [ $(echo ${OPTARG} | egrep -c '^[0-9][0-9]*$') -eq 1 ]; then
-        osdid=${OPTARG}
+    d)
+      if [ $(echo ${OPTARG} | egrep -c "^[0-1]$") -eq 1 ]; then
+        posttrimdump=${OPTARG}
       else
         echo
-        echo "ERROR: -o parameter must be numeric ID only."
+        echo "ERROR: -m paramter must be numeric only"
+	error=1
+      fi
+      ;;
+    f)
+      if [ $(echo ${OPTARG} | egrep -c "^[0-1]$") -eq 1 ]; then
+        manageflags=${OPTARG}
+      else
+        echo
+        echo "ERROR: -m paramter must be numeric only"
 	error=1
       fi
       ;;
@@ -62,6 +85,15 @@ while getopts ":o:i:m:p:" o; do
       else
         echo
         echo "ERROR: -m paramter must be numeric only"
+	error=1
+      fi
+      ;;
+    o)
+      if [ $(echo ${OPTARG} | egrep -c '^[0-9][0-9]*$') -eq 1 ]; then
+        osdid=${OPTARG}
+      else
+        echo
+        echo "ERROR: -o parameter must be numeric ID only."
 	error=1
       fi
       ;;
@@ -100,22 +132,28 @@ log "  cephadmopts=${cephadmopts}"
 log "  maxtrim=${maxtrim}"
 log "  allpgs=${allpgs}"
 log "  pgid=${pgid}"
+log "  posttrimdump=${posttrimdump}"
+log "  manageflags=${manageflags}"
+
 
 log "INFO: Gathering fsid"
 
-fsid=$(awk '/fsid\ *=\ */ {print $NF}' /etc/ceph/ceph.conf)
+fsid=$(awk '/fsid *= */ {print $NF}' /etc/ceph/ceph.conf)
 if [ -z "${fsid}" ]; then
   log "ERROR: Could not retrieve cluster FSID from /etc/ceph/ceph.conf"
+  exit 1
 fi
 
 mkdir /var/log/ceph/${fsid}/osd.${osdid} &>/dev/null
 
-log "INFO: setting noout flag"
-cephadm shell --fsid ${fsid} ceph osd set noout &>/dev/null
-RETVAL=$?
-if [ $RETVAL -ne 0 ]; then
-  log "ERROR: Failed to set noout flag - ret: $RETVAL"
-  exit $RETVAL
+if [ $manageflags -eq 1 ]; then
+  log "INFO: setting noout flag"
+  cephadm shell --fsid ${fsid} ceph osd set noout &>/dev/null
+  RETVAL=$?
+  if [ $RETVAL -ne 0 ]; then
+    log "ERROR: Failed to set noout flag - ret: $RETVAL"
+    exit $RETVAL
+  fi
 fi
 
 log "INFO: stopping osd.${osdid}"
@@ -141,12 +179,22 @@ else
 fi
 
 log "INFO: Generating PG log script for osd.${osdid}"
+posttrimline=""
+if [ $posttrimdump -eq 1 ]; then
+  log "INFO: Including post-trim PGLog dump in script."
+  pretrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_pre-trim-dump_pg-log.json"
+  posttrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_post-trim-dump_pg-log.json"
+fi
+
 cat << EOF > /var/log/ceph/${fsid}/osd.${osdid}/trim_pglog_osd.${osdid}.sh
 #!/usr/bin/bash
 
 for pgid in \$(cat /var/log/ceph/osd.${osdid}/osd.${osdid}_list-pgs.txt); do
   echo \$(date +%F\ %T) $(hostname -s) INFO: Trimming pg log for \$pgid
-  ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log --osd_pg_log_trim_max=$maxtrim --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log
+  ${pretrimline}
+  CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}'
+  ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log
+  ${posttrimline}
 done
 EOF
 chmod 755 /var/log/ceph/${fsid}/osd.${osdid}/trim_pglog_osd.${osdid}.sh
@@ -168,12 +216,14 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
-log "INFO: unsetting noout flag"
-cephadm shell --fsid ${fsid} ceph osd unset noout &>/dev/null
-RETVAL=$?
-if [ $RETVAL -ne 0 ]; then
-  log "ERROR: Failed to unset noout flag - ret: $RETVAL"
-  exit $RETVAL
+if [ $manageflags -eq 1 ]; then
+  log "INFO: unsetting noout flag"
+  cephadm shell --fsid ${fsid} ceph osd unset noout &>/dev/null
+  RETVAL=$?
+  if [ $RETVAL -ne 0 ]; then
+    log "ERROR: Failed to unset noout flag - ret: $RETVAL"
+    exit $RETVAL
+  fi
 fi
 
 log "INFO: creating tar.gz of osd.${osdid} output"
