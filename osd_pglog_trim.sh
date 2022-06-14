@@ -192,8 +192,7 @@ cat << EOF > /var/log/ceph/${fsid}/osd.${osdid}/trim_pglog_osd.${osdid}.sh
 for pgid in \$(cat /var/log/ceph/osd.${osdid}/osd.${osdid}_list-pgs.txt); do
   echo \$(date +%F\ %T) $(hostname -s) INFO: Trimming pg log for \$pgid
   ${pretrimline}
-  CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}'
-  ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log
+  CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log
   ${posttrimline}
 done
 EOF
