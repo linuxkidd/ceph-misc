@@ -182,8 +182,8 @@ log "INFO: Generating PG log script for osd.${osdid}"
 posttrimline=""
 if [ $posttrimdump -eq 1 ]; then
   log "INFO: Including post-trim PGLog dump in script."
-  pretrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_pre-trim-dump_pg-log.json"
-  posttrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_post-trim-dump_pg-log.json"
+  pretrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid > /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_pre-trim-dump_pg-log.json"
+  posttrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid > /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_post-trim-dump_pg-log.json"
 fi
 
 cat << EOF > /var/log/ceph/${fsid}/osd.${osdid}/trim_pglog_osd.${osdid}.sh
