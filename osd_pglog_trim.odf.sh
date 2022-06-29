@@ -241,6 +241,8 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
+osdpod=$(echo $osdpod | sed -e 's/^[^\/]*\///')
+
 log "INFO: Copying output for osd.${osdid} locally"
 mkdir -p ./osd.${osdid} &> /dev/null
 oc cp ${osdpod}:/var/log/ceph/osd.${osdid}/ ./osd.${osdid}/
