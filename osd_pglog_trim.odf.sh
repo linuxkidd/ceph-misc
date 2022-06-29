@@ -211,7 +211,7 @@ fi
 
 log "INFO: Generating PG log script for osd.${osdid}"
 pretrimline=""
-trimline="CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
+trimline="CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid \&> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
 posttrimline=""
 if [ $notrim ]; then
   log "INFO: Setting up PGLog dump only."
