@@ -199,31 +199,37 @@ if [ $RETVAL -ne 0 ]; then
 fi
 
 if [ $allpgs -eq 1 ]; then
-  log "INFO: Listing all PGs for osd.${osdid}"
-  (oc rsh ${osdpod} ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op list-pgs) > ./osd.${osdid}_list-pgs.txt
+  log "INFO: Operating on all PGs for osd.${osdid}"
+  pglist="\$(ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op list-pgs)"
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
     log "ERROR: Failed to dump list-pgs from osd.${osdid} - ret: $RETVAL"
     exit $RETVAL
   fi
 else
-  log "Operating only on PG: ${pgid}"
-  echo $pgid > /var/log/ceph/${fsid}/osd.${osdid}/osd.${osdid}_list-pgs.txt
+  log "INFO: Operating only on PG: ${pgid}"
+  pglist=${pgid}
 fi
 
 log "INFO: Generating PG log script for osd.${osdid}"
+pretrimline=""
+trimline="CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
 posttrimline=""
-if [ $posttrimdump -eq 1 ]; then
+if [ $notrim ]; then
+  log "INFO: Setting up PGLog dump only."
+  pretrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid > /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_pre-trim-dump_pg-log.json"
+  trimline=""
+  posttrimline=""
+elif [ $posttrimdump -eq 1 ]; then
   log "INFO: Including post-trim PGLog dump in script."
   pretrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid > /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_pre-trim-dump_pg-log.json"
   posttrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid > /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_post-trim-dump_pg-log.json"
 fi
 
-cat << EOF > /var/log/ceph/${fsid}/osd.${osdid}/trim_pglog_osd.${osdid}.sh
-#!/usr/bin/bash
-
-for pgid in \$(cat /var/log/ceph/osd.${osdid}/osd.${osdid}_list-pgs.txt); do
-  echo \$(date +%F\ %T) $(hostname -s) INFO: Trimming pg log for \$pgid
+log "INFO: Executing PG log script for osd.${osdid} via pod ${osdpod}"
+oc rsh ${osdpod} << EOF
+for pgid in ${pglist}; do
+  echo \$(date +%F\ %T) ${osdpod} INFO: Trimming pg log for \$pgid
   ${pretrimline}
   CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log
   ${posttrimline}
