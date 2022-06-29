@@ -247,7 +247,7 @@ mkdir -p ./osd.${osdid} &> /dev/null
 oc cp ${osdpod}:/var/log/ceph/osd.${osdid}/ ./osd.${osdid}/
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
-  log "ERROR: Failed to revert deployment for osd.${osdid} - ret: $RETVAL"
+  log "ERROR: Failed to copy data for osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
 
