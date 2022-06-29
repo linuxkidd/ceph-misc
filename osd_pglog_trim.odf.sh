@@ -174,7 +174,7 @@ fi
 
 if [ $manageflags -eq 1 ]; then
   log "INFO: setting noout flag"
-  oc rsh -n openshift-storage $(oc get po -l app=rook-ceph-tools -oname) ceph osd set noout
+  oc rsh -n openshift-storage $(oc get po -l app=rook-ceph-tools -oname) ceph osd set noout &> /dev/null
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
     log "ERROR: Failed to set noout flag - ret: $RETVAL"
@@ -228,35 +228,31 @@ fi
 
 log "INFO: Executing PG log script for osd.${osdid} via pod ${osdpod}"
 oc rsh ${osdpod} << EOF
+mkdir -p /var/log/ceph/osd.${osdid} &> /dev/null
 for pgid in ${pglist}; do
-  echo \$(date +%F\ %T) ${osdpod} INFO: Trimming pg log for \$pgid
+  echo \$(date +%F\ %T) ${osdpod} INFO: Processing pg log for \$pgid
   ${pretrimline}
-  CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log
+  ${trimline}
   ${posttrimline}
 done
 EOF
-chmod 755 /var/log/ceph/${fsid}/osd.${osdid}/trim_pglog_osd.${osdid}.sh
-
-log "INFO: Running PG log script for osd.${osdid}"
-cephadm $cephadmopts shell --fsid ${fsid} --name osd.${osdid} /var/log/ceph/osd.${osdid}/trim_pglog_osd.${osdid}.sh
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to run pglog trim script for osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
 
-log "INFO: starting osd.${osdid}"
-systemctl enable ceph-${fsid}@osd.${osdid}
-cephadm unit --fsid ${fsid} --name osd.${osdid} start
+log "INFO: Reverting deployment for osd.${osdid}"
+oc replace --force -f ${osdid}.yaml
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
-  log "ERROR: Failed to start osd.${osdid} - ret: $RETVAL"
+  log "ERROR: Failed to revert deployment for osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
 
 if [ $manageflags -eq 1 ]; then
   log "INFO: unsetting noout flag"
-  cephadm shell --fsid ${fsid} ceph osd unset noout &>/dev/null
+  oc rsh -n openshift-storage $(oc get po -l app=rook-ceph-tools -oname) ceph osd unset noout &> /dev/null
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
     log "ERROR: Failed to unset noout flag - ret: $RETVAL"
