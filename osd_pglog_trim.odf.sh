@@ -242,6 +242,16 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
+log "INFO: Copying output for osd.${osdid} locally"
+mkdir -p ./osd.${osdid} &> /dev/null
+oc cp ${osdpod}:/var/log/ceph/osd.${osdid}/ ./osd.${osdid}/
+RETVAL=$?
+if [ $RETVAL -ne 0 ]; then
+  log "ERROR: Failed to revert deployment for osd.${osdid} - ret: $RETVAL"
+  exit $RETVAL
+fi
+
+
 log "INFO: Reverting deployment for osd.${osdid}"
 oc replace --force -f ${osdid}.yaml
 RETVAL=$?
