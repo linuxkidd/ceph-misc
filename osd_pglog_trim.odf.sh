@@ -152,8 +152,6 @@ log "  manageflags=${manageflags}"
 
 log "INFO: Gathering fsid"
 
-osdpod=$(oc get pod -l osd=${osdid} -o name)
-
 #fsid=$(awk '/fsid *= */ {print $NF}' /etc/ceph/ceph.conf)
 #if [ -z "${fsid}" ]; then
 #  log "ERROR: Could not retrieve cluster FSID from /etc/ceph/ceph.conf"
@@ -226,6 +224,7 @@ elif [ $posttrimdump -eq 1 ]; then
   posttrimline="CEPH_ARGS='--no_mon_config --osd_pg_log_dups_tracked=999999999999' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op log --pgid \$pgid > /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_post-trim-dump_pg-log.json"
 fi
 
+osdpod=$(oc get pod -l osd=${osdid} -o name)
 log "INFO: Executing PG log script for osd.${osdid} via pod ${osdpod}"
 oc rsh ${osdpod} << EOF
 mkdir -p /var/log/ceph/osd.${osdid} &> /dev/null
