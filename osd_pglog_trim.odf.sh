@@ -54,6 +54,7 @@ fi
 ## Defaults
 osdid=""
 cephadmopts=""
+imagerepo=""
 maxtrim=500000
 allpgs=1
 pgid=""
@@ -82,7 +83,7 @@ while getopts ":o:i:m:n:p:d:f:" o; do
       fi
       ;;
     i)
-      cephadmopts="--image ${OPTARG}"
+      imagerepo="${OPTARG}"
       ;;
     m)
       if [ $(echo ${OPTARG} | egrep -c "^[0-9][0-9]*$") -eq 1 ]; then
@@ -189,7 +190,13 @@ if [ $RETVAL -ne 0 ]; then
 fi
 
 log "INFO: Sleeping pod for osd.${osdid}"
-oc patch deployment rook-ceph-osd-${osdid} -p '{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
+if [ ! -z "$imagerepo" ]; then
+  patch="{\"spec\": {\"template\": {\"spec\": {\"containers\": [{ \"image\": \"${imagerepo}\", \"name\": \"osd\", \"command\": [\"sleep\", \"infinity\"], \"args\": []}]}}}}"
+else
+  patch='{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
+fi
+oc patch deployment rook-ceph-osd-${osdid} -p "${patch}"
+
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to sleep osd.${osdid} - ret: $RETVAL"
@@ -242,7 +249,6 @@ if [ $RETVAL -ne 0 ]; then
 fi
 
 osdpod=$(echo $osdpod | sed -e 's/^[^\/]*\///')
-
 log "INFO: Copying output for osd.${osdid} locally"
 mkdir -p ./osd.${osdid} &> /dev/null
 oc cp ${osdpod}:/var/log/ceph/osd.${osdid}/ ./osd.${osdid}/
