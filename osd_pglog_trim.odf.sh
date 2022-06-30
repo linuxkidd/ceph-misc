@@ -45,6 +45,20 @@ log() {
   echo $(date +%F\ %T) $(hostname -s) "$1"
 }
 
+restoreOSD() {
+  if [ -e ${1}.yaml ]; then
+    oc replace --force -f ${1}.yaml
+    RETVAL=$?
+    if [ $RETVAL -ne 0 ]; then
+      log "ERROR: Failed to restore deployment for osd.${1} - ret: $RETVAL"
+      exit $RETVAL
+    fi
+  else 
+    log "CRITICAL: Backup ${1}.yaml file not found.  OSD.${1} not restored!"
+    exit 1
+  fi
+}
+
 if [ $# -lt 1 ]; then
   echo
   echo "ERROR: Required parameters missing."
@@ -141,25 +155,16 @@ if [ -z "${osdid}" ]; then
   usage
 fi
 
-log "Paramters:"
-log "  osdid=${osdid}"
-log "  cephadmopts=${cephadmopts}"
-log "  maxtrim=${maxtrim}"
-log "  allpgs=${allpgs}"
-log "  pgid=${pgid}"
-log "  posttrimdump=${posttrimdump}"
-log "  notrim=${notrim}"
-log "  manageflags=${manageflags}"
-
-log "INFO: Gathering fsid"
-
-#fsid=$(awk '/fsid *= */ {print $NF}' /etc/ceph/ceph.conf)
-#if [ -z "${fsid}" ]; then
-#  log "ERROR: Could not retrieve cluster FSID from /etc/ceph/ceph.conf"
-#  exit 1
-#fi
-
-#mkdir /var/log/ceph/${fsid}/osd.${osdid} &>/dev/null
+log "PARAM: Paramters:"
+log "PARAM:   osdid=${osdid}"
+log "PARAM:   cephadmopts=${cephadmopts}"
+log "PARAM:   maxtrim=${maxtrim}"
+log "PARAM:   allpgs=${allpgs}"
+log "PARAM:   pgid=${pgid}"
+log "PARAM:   posttrimdump=${posttrimdump}"
+log "PARAM:   notrim=${notrim}"
+log "PARAM:   manageflags=${manageflags}"
+log "PARAM:   imagerepo=${imagerepo}"
 
 if [ $manageflags -eq 1 ]; then
   log "INFO: scaling down rook-ceph and ocs operators"
@@ -187,19 +192,37 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
-log "INFO: Sleeping pod for osd.${osdid}"
+log "INFO: Sleeping and removing livenessProbe for osd.${osdid} pod"
 if [ ! -z "$imagerepo" ]; then
   patch="{\"spec\": {\"template\": {\"spec\": {\"containers\": [{ \"image\": \"${imagerepo}\", \"name\": \"osd\", \"command\": [\"sleep\", \"infinity\"], \"args\": []}]}}}}"
 else
   patch='{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
 fi
-oc patch deployment rook-ceph-osd-${osdid} -p "${patch}"
-
+oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p '[{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}]'
+oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p "${patch}"
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to sleep osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
+
+log "INFO: Waiting up to 2 minutes for osd.${osdid} pod to be Running"
+mysleep=0
+isRunning=0
+while [ mysleep -lt 120 ]; do
+  isRunning=$(oc get pod -l osd=0 -o json | jq '.items[0].status.containerStatuses | last | .state | select(.running != null)' | wc -l)
+  if [ $isRunning -gt 0 ]; then
+    break
+  fi
+  echo -n .
+  sleep 1
+done
+if [ $isRunning -eq 0 ]; then
+  log "ERROR: Patched container failed to enter Running state."
+  restoreOSD $osdid
+  exit 1
+fi
+
 
 if [ $allpgs -eq 1 ]; then
   log "INFO: Operating on all PGs for osd.${osdid}"
@@ -207,6 +230,7 @@ if [ $allpgs -eq 1 ]; then
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
     log "ERROR: Failed to dump list-pgs from osd.${osdid} - ret: $RETVAL"
+    restoreOSD $osdid
     exit $RETVAL
   fi
 else
@@ -243,6 +267,7 @@ EOF
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to run pglog trim script for osd.${osdid} - ret: $RETVAL"
+  restoreOSD $osdid
   exit $RETVAL
 fi
 
@@ -253,25 +278,20 @@ oc cp ${osdpod}:/var/log/ceph/osd.${osdid}/ ./osd.${osdid}/
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to copy data for osd.${osdid} - ret: $RETVAL"
+  restoreOSD $osdid
   exit $RETVAL
 fi
 
 
 log "INFO: Reverting deployment for osd.${osdid}"
-oc replace --force -f ${osdid}.yaml
-RETVAL=$?
-if [ $RETVAL -ne 0 ]; then
-  log "ERROR: Failed to revert deployment for osd.${osdid} - ret: $RETVAL"
-  exit $RETVAL
-fi
-
+restoreOSD $osdid
 
 if [ $manageflags -eq 1 ]; then
   log "INFO: scaling up rook-ceph and ocs operators"
   oc scale deployment {rook-ceph,ocs}-operator --replicas=1 -n openshift-storage
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
-    log "ERROR: Failed to scale down - ret: $RETVAL"
+    log "ERROR: Failed to scale up - ret: $RETVAL"
     exit $RETVAL
   fi
 
