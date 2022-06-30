@@ -90,7 +90,7 @@ waitOSDPod() {
     restoreOSD $osdid
     exit 1
   fi
-
+  sleep 5
 }
 
 if [ $# -lt 1 ]; then
