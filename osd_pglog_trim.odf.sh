@@ -169,9 +169,7 @@ if [ $manageflags -eq 1 ]; then
     log "ERROR: Failed to scale down - ret: $RETVAL"
     exit $RETVAL
   fi
-fi
 
-if [ $manageflags -eq 1 ]; then
   log "INFO: setting noout flag"
   oc rsh -n openshift-storage $(oc get po -l app=rook-ceph-tools -oname) ceph osd set noout &> /dev/null
   RETVAL=$?
@@ -267,7 +265,16 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
+
 if [ $manageflags -eq 1 ]; then
+  log "INFO: scaling up rook-ceph and ocs operators"
+  oc scale deployment {rook-ceph,ocs}-operator --replicas=1 -n openshift-storage
+  RETVAL=$?
+  if [ $RETVAL -ne 0 ]; then
+    log "ERROR: Failed to scale down - ret: $RETVAL"
+    exit $RETVAL
+  fi
+
   log "INFO: unsetting noout flag"
   oc rsh -n openshift-storage $(oc get po -l app=rook-ceph-tools -oname) ceph osd unset noout &> /dev/null
   RETVAL=$?
