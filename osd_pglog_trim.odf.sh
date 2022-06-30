@@ -94,6 +94,7 @@ waitOSDPod() {
   mysleep=0
   while [ $mysleep -lt 5 ]; do
     echo -n .
+    ((mysleep++))
     sleep 1
   done
 }
