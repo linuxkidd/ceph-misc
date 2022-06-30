@@ -199,6 +199,12 @@ else
   patch='{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
 fi
 oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p '[{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}]'
+RETVAL=$?
+if [ $RETVAL -ne 0 ]; then
+  log "ERROR: Failed to remove livenessProbe osd.${osdid} - ret: $RETVAL"
+  exit $RETVAL
+fi
+
 oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p "${patch}"
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
