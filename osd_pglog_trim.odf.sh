@@ -278,8 +278,8 @@ if [ $manageflags -eq 1 ]; then
 fi
 
 log "INFO: creating tar.gz of osd.${osdid} output"
-outfile=/var/log/ceph/${fsid}/osd.${osdid}_pglog_trim_dump.tar.gz
-tar -C /var/log/ceph/${fsid}/osd.${osdid} -czf $outfile ./
+outfile=./osd.${osdid}_pglog_trim_dump.tar.gz
+tar -C ./osd.${osdid} -czf $outfile ./
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to create tar.gz of osd.${osdid} output - ret: $RETVAL"
