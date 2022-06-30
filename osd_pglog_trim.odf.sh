@@ -217,6 +217,8 @@ while [ mysleep -lt 120 ]; do
   echo -n .
   sleep 1
 done
+echo
+
 if [ $isRunning -eq 0 ]; then
   log "ERROR: Patched container failed to enter Running state."
   restoreOSD $osdid
