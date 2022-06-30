@@ -192,12 +192,7 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
-log "INFO: Sleeping and removing livenessProbe for osd.${osdid} pod"
-if [ ! -z "$imagerepo" ]; then
-  patch="{\"spec\": {\"template\": {\"spec\": {\"containers\": [{ \"image\": \"${imagerepo}\", \"name\": \"osd\", \"command\": [\"sleep\", \"infinity\"], \"args\": []}]}}}}"
-else
-  patch='{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
-fi
+log "INFO: Removing livenessProbe for osd.${osdid} pod"
 oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p '[{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}]'
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
@@ -205,6 +200,12 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
+log "INFO: Sleeping osd.${osdid} pod"
+if [ ! -z "$imagerepo" ]; then
+  patch="{\"spec\": {\"template\": {\"spec\": {\"containers\": [{ \"image\": \"${imagerepo}\", \"name\": \"osd\", \"command\": [\"sleep\", \"infinity\"], \"args\": []}]}}}}"
+else
+  patch='{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
+fi
 oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p "${patch}"
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
