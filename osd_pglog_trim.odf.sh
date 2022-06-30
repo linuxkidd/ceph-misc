@@ -97,6 +97,7 @@ waitOSDPod() {
     ((mysleep++))
     sleep 1
   done
+  echo
 }
 
 if [ $# -lt 1 ]; then
