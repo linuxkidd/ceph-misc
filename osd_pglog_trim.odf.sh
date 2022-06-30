@@ -356,3 +356,6 @@ echo
 echo
 echo
 echo Please attach $outfile to your support ticket
+echo
+echo
+echo
