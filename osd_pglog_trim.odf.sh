@@ -90,6 +90,7 @@ waitOSDPod() {
     restoreOSD $osdid
     exit 1
   fi
+  log "INFO: Sleeping 5 seconds for container init to complete."
   sleep 5
 }
 
