@@ -59,6 +59,37 @@ restoreOSD() {
   fi
 }
 
+waitOSDPod() {
+  mysleep=0
+  isRunning=0
+
+  if [ ! -z "$2" ]; then
+    log "INFO: Waiting for old pod to terminate"
+    while [ $(oc get pod -l osd=${1} -o name | grep -c ${2}) -gt 0 ]; then
+      echo -n .
+      sleep 1
+    done
+  fi
+
+  log "INFO: Waiting up to 2 minutes for osd.${1} pod to be Running"
+  while [ mysleep -lt 120 ]; do
+    isRunning=$(oc get pod -l osd=${1} -o json | jq '.items[0].status.containerStatuses | last | .state | select(.running != null)' | wc -l)
+    if [ $isRunning -gt 0 ]; then
+      break
+    fi
+    echo -n .
+    sleep 1
+  done
+  echo
+
+  if [ $isRunning -eq 0 ]; then
+    log "ERROR: Patched container failed to enter Running state."
+    restoreOSD $osdid
+    exit 1
+  fi
+
+}
+
 if [ $# -lt 1 ]; then
   echo
   echo "ERROR: Required parameters missing."
@@ -193,45 +224,29 @@ if [ $RETVAL -ne 0 ]; then
 fi
 
 log "INFO: Removing livenessProbe for osd.${osdid} pod"
-oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p '[{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}]'
+osdpod=$(oc get pod -l osd=${osdid} -o name)
+oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}'
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to remove livenessProbe osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
+waitOSDPod ${osdid} ${osdpod}
 
 log "INFO: Sleeping osd.${osdid} pod"
+osdpod=$(oc get pod -l osd=${osdid} -o name)
 if [ ! -z "$imagerepo" ]; then
-  patch="{\"spec\": {\"template\": {\"spec\": {\"containers\": [{ \"image\": \"${imagerepo}\", \"name\": \"osd\", \"command\": [\"sleep\", \"infinity\"], \"args\": []}]}}}}"
+  oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{ "image": "'${imagerepo}'", "name": "osd", "command": ["sleep", "infinity"], "args": []}]}}}}'
+  RETVAL=$?
 else
-  patch='{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
+  oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
+  RETVAL=$?
 fi
-oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage --type='json' -p "${patch}"
-RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to sleep osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
-
-log "INFO: Waiting up to 2 minutes for osd.${osdid} pod to be Running"
-mysleep=0
-isRunning=0
-while [ mysleep -lt 120 ]; do
-  isRunning=$(oc get pod -l osd=0 -o json | jq '.items[0].status.containerStatuses | last | .state | select(.running != null)' | wc -l)
-  if [ $isRunning -gt 0 ]; then
-    break
-  fi
-  echo -n .
-  sleep 1
-done
-echo
-
-if [ $isRunning -eq 0 ]; then
-  log "ERROR: Patched container failed to enter Running state."
-  restoreOSD $osdid
-  exit 1
-fi
-
+waitOSDPod ${osdid} ${osdpod}
 
 if [ $allpgs -eq 1 ]; then
   log "INFO: Operating on all PGs for osd.${osdid}"
