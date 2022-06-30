@@ -91,7 +91,11 @@ waitOSDPod() {
     exit 1
   fi
   log "INFO: Sleeping 5 seconds for container init to complete."
-  sleep 5
+  mysleep=0
+  while [ $mysleep -lt 5 ]; do
+    echo -n .
+    sleep 1
+  done
 }
 
 if [ $# -lt 1 ]; then
