@@ -65,7 +65,7 @@ waitOSDPod() {
 
   if [ ! -z "$2" ]; then
     log "INFO: Waiting for old pod to terminate"
-    while [ $(oc get pod -l osd=${1} -o name | grep -c ${2}) -gt 0 ]; then
+    while [ $(oc get pod -l osd=${1} -o name | grep -c ${2}) -gt 0 ]; do
       echo -n .
       sleep 1
     done
