@@ -65,7 +65,7 @@ waitOSDPod() {
 
   if [ ! -z "$2" ]; then
     log "INFO: Waiting for old pod to terminate"
-    while [ $(oc get pod -l osd=${1} -o name | grep -c ${2}) -gt 0 ] && [ mysleep -lt 120 ]; do
+    while [ $(oc get pod -l osd=${1} -o name | grep -c ${2}) -gt 0 ] && [ $mysleep -lt 120 ]; do
       echo -n .
       ((mysleep++))
       sleep 1
@@ -73,7 +73,7 @@ waitOSDPod() {
   fi
 
   log "INFO: Waiting up to 2 minutes for osd.${1} pod to be Running"
-  while [ mysleep -lt 120 ]; do
+  while [ $mysleep -lt 120 ]; do
     isRunning=$(oc get pod -l osd=${1} -o json | jq '.items[0].status.containerStatuses | last | .state | select(.running != null)' | wc -l)
     if [ $isRunning -gt 0 ]; then
       break
