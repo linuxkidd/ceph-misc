@@ -70,6 +70,7 @@ waitOSDPod() {
       ((mysleep++))
       sleep 1
     done
+    echo
   fi
 
   log "INFO: Waiting up to 2 minutes for osd.${1} pod to be Running"
