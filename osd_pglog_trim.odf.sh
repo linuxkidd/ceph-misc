@@ -65,8 +65,9 @@ waitOSDPod() {
 
   if [ ! -z "$2" ]; then
     log "INFO: Waiting for old pod to terminate"
-    while [ $(oc get pod -l osd=${1} -o name | grep -c ${2}) -gt 0 ]; do
+    while [ $(oc get pod -l osd=${1} -o name | grep -c ${2}) -gt 0 ] && [ mysleep -lt 120 ]; do
       echo -n .
+      ((mysleep++))
       sleep 1
     done
   fi
@@ -78,6 +79,7 @@ waitOSDPod() {
       break
     fi
     echo -n .
+    ((mysleep++))
     sleep 1
   done
   echo
@@ -225,28 +227,32 @@ fi
 
 log "INFO: Removing livenessProbe for osd.${osdid} pod"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
-oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}'
+resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}')
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to remove livenessProbe osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
-waitOSDPod ${osdid} ${osdpod}
+if [ $(echo $resp | grep -c "no change") -eq 0 ]; then
+  waitOSDPod ${osdid} ${osdpod}
+fi
 
 log "INFO: Sleeping osd.${osdid} pod"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
 if [ ! -z "$imagerepo" ]; then
-  oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{ "image": "'${imagerepo}'", "name": "osd", "command": ["sleep", "infinity"], "args": []}]}}}}'
+  resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{ "image": "'${imagerepo}'", "name": "osd", "command": ["sleep", "infinity"], "args": []}]}}}}')
   RETVAL=$?
 else
-  oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}'
+  resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}')
   RETVAL=$?
 fi
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to sleep osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
-waitOSDPod ${osdid} ${osdpod}
+if [ $(echo $resp | grep -c "no change") -eq 0 ]; then
+  waitOSDPod ${osdid} ${osdpod}
+fi
 
 if [ $allpgs -eq 1 ]; then
   log "INFO: Operating on all PGs for osd.${osdid}"
