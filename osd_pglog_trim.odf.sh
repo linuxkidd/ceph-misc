@@ -245,6 +245,18 @@ if [ $(echo $resp | grep -c "no change") -eq 0 ]; then
   waitOSDPod ${osdid} ${osdpod}
 fi
 
+log "INFO: Removing startupProbe for osd.${osdid} pod"
+osdpod=$(oc get pod -l osd=${osdid} -o name)
+resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"op":"remove", "path":"/spec/template/spec/containers/0/startupProbe"}]')
+RETVAL=$?
+if [ $RETVAL -ne 0 ]; then
+  log "ERROR: Failed to remove startupProbe osd.${osdid} - ret: $RETVAL"
+  exit $RETVAL
+fi
+if [ $(echo $resp | grep -c "no change") -eq 0 ]; then
+  waitOSDPod ${osdid} ${osdpod}
+fi
+
 log "INFO: Sleeping osd.${osdid} pod"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
 if [ ! -z "$imagerepo" ]; then
