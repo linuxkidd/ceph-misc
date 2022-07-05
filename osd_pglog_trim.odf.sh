@@ -1,5 +1,4 @@
 #!/usr/bin/bash
-
 usage() {
   cat <<EOF >&2
 
@@ -47,7 +46,7 @@ log() {
 
 restoreOSD() {
   if [ -e ${1}.yaml ]; then
-    oc replace --force -f ${1}.yaml
+    #oc replace --force -f ${1}.${starttime}.yaml
     RETVAL=$?
     if [ $RETVAL -ne 0 ]; then
       log "ERROR: Failed to restore deployment for osd.${1} - ret: $RETVAL"
@@ -196,6 +195,8 @@ if [ -z "${osdid}" ]; then
   usage
 fi
 
+starttime=$(date +%F_%H-%M-%S)
+
 log "PARAM: Paramters:"
 log "PARAM:   osdid=${osdid}"
 log "PARAM:   cephadmopts=${cephadmopts}"
@@ -226,46 +227,57 @@ if [ $manageflags -eq 1 ]; then
 fi
 
 log "INFO: Backing up osd deployment yaml"
-oc get deployment rook-ceph-osd-${osdid} -o yaml > ${osdid}.yaml
+oc get deployment rook-ceph-osd-${osdid} -o yaml > ${osdid}.${starttime}.yaml
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to dump osd deployment yaml - ret: $RETVAL"
   exit $RETVAL
 fi
 
-log "INFO: Removing livenessProbe for osd.${osdid} pod"
+log "INFO: Removing liveness and startup Probes for osd.${osdid} pod"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
-resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"op":"remove", "path":"/spec/template/spec/containers/0/livenessProbe"}')
+resp=$(oc set probe deployment rook-ceph-osd-${osdid} --remove --liveness --startup)
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
-  log "ERROR: Failed to remove livenessProbe osd.${osdid} - ret: $RETVAL"
+  log "ERROR: Failed to remove Probes osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
-if [ $(echo $resp | grep -c "no change") -eq 0 ]; then
+if [ $(echo $resp | grep -c "updated") -gt 0 ]; then
   waitOSDPod ${osdid} ${osdpod}
 fi
 
-log "INFO: Removing startupProbe for osd.${osdid} pod"
+if [ ! -z "$imagerepo" ]; then
+  osdpod=$(oc get pod -l osd=${osdid} -o name)
+  log "INFO: Setting pod imge for osd.${osdid}"
+  resp=$(oc set image deployment rook-ceph-osd-${osdid} osd=${imagerepo})
+  RETVAL=$?
+  if [ $RETVAL -ne 0 ]; then
+    log "ERROR: Failed to set image osd.${osdid} - ret: $RETVAL"
+    exit $RETVAL
+  fi
+  if [ $(echo $resp | grep -c "updated") -gt 0 ]; then
+    waitOSDPod ${osdid} ${osdpod}
+  fi
+fi
+
+log "INFO: Setting CPU/Memory to 8/64"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
-resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"op":"remove", "path":"/spec/template/spec/containers/0/startupProbe"}]')
+resp=$(oc set resources deployment rook-ceph-osd-${osdid} --limits=cpu=8,memory=64Gi --requests=cpu=8,memory=64Gi)
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
-  log "ERROR: Failed to remove startupProbe osd.${osdid} - ret: $RETVAL"
+  log "ERROR: Failed to set CPU/Memory osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
 fi
-if [ $(echo $resp | grep -c "no change") -eq 0 ]; then
+if [ $(echo $resp | grep -c "updated") -gt 0 ]; then
   waitOSDPod ${osdid} ${osdpod}
 fi
+
 
 log "INFO: Sleeping osd.${osdid} pod"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
-if [ ! -z "$imagerepo" ]; then
-  resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{ "image": "'${imagerepo}'", "name": "osd", "command": ["sleep", "infinity"], "args": []}]}}}}')
-  RETVAL=$?
-else
-  resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}')
-  RETVAL=$?
-fi
+resp=$(oc patch deployment rook-ceph-osd-${osdid} -n openshift-storage -p '{"spec": {"template": {"spec": {"containers": [{"name": "osd", "command": ["sleep"], "args": ["infinity"]}]}}}}')
+RETVAL=$?
+
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to sleep osd.${osdid} - ret: $RETVAL"
   exit $RETVAL
@@ -290,7 +302,8 @@ fi
 
 log "INFO: Generating PG log script for osd.${osdid}"
 pretrimline=""
-trimline="CEPH_ARGS='--osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid \&> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
+#trimline="CEPH_ARGS='--no_mon_config --rocksdb_cache_size=10737418240 --bluestore_rocksdb_options=\"compression=kNoCompression,max_write_buffer_number=4,min_write_buffer_number_to_merge=1,recycle_log_file_num=4,write_buffer_size=268435456,writable_file_max_buffer_size=0,compaction_readahead_size=2097152,max_background_compactions=2,max_total_wal_size=1073741824,compact_on_mount=false\"  --osd_pg_log_dups_tracked=1 --osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
+trimline="CEPH_ARGS='--no_mon_config --rocksdb_cache_size=10737418240 --osd_pg_log_dups_tracked=1 --osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
 posttrimline=""
 if [ $notrim ]; then
   log "INFO: Setting up PGLog dump only."
@@ -306,9 +319,14 @@ fi
 osdpod=$(oc get pod -l osd=${osdid} -o name)
 log "INFO: Executing PG log script for osd.${osdid} via pod ${osdpod}"
 oc rsh ${osdpod} << EOF
+echo \$(date %F\ %T) ${osdpod} INFO: Dumping PG list
+mypglist=${pglist}
+total=\$(echo \$mypglist | wc -w)
+count=0
 mkdir -p /var/log/ceph/osd.${osdid} &> /dev/null
-for pgid in ${pglist}; do
-  echo \$(date +%F\ %T) ${osdpod} INFO: Processing pg log for \$pgid
+for pgid in \${mypglist}; do
+  ((count++))
+  echo \$(date +%F\ %T) ${osdpod} INFO: Processing pg log for \$pgid :: Progress \$count / \$total
   ${pretrimline}
   ${trimline}
   ${posttrimline}
