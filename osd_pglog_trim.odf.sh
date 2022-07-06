@@ -302,7 +302,7 @@ fi
 
 log "INFO: Generating PG log script for osd.${osdid}"
 pretrimline=""
-#trimline="CEPH_ARGS='--no_mon_config --rocksdb_cache_size=10737418240 --bluestore_rocksdb_options=\"compression=kNoCompression,max_write_buffer_number=4,min_write_buffer_number_to_merge=1,recycle_log_file_num=4,write_buffer_size=268435456,writable_file_max_buffer_size=0,compaction_readahead_size=2097152,max_background_compactions=2,max_total_wal_size=1073741824,compact_on_mount=false\"  --osd_pg_log_dups_tracked=1 --osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
+#trimline="CEPH_ARGS='--no_mon_config --rocksdb_cache_size=10737418240 --bluestore_rocksdb_options_annex=compression=max_background_compactions=1,max_background_jobs=1  --osd_pg_log_dups_tracked=1 --osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
 trimline="CEPH_ARGS='--no_mon_config --rocksdb_cache_size=10737418240 --osd_pg_log_dups_tracked=1 --osd_pg_log_trim_max=${maxtrim}' ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-${osdid} --op trim-pg-log-dups --pgid \$pgid &> /var/log/ceph/osd.${osdid}/osd.${osdid}_pgid_\${pgid}_trim-pg-log.log"
 posttrimline=""
 if [ $notrim ]; then
