@@ -47,14 +47,11 @@ lasthost=""
 for hostosd in $osd_list; do
     osdhost=$(echo $hostosd | sed -e 's/,.*$//')
     osdids=$(echo $hostosd | sed -e 's/^[^,]*,//' -e 's/,/ /g')
+
+    pushData $osdhost
+
     log "INFO: Putting host ${osdhost} into maintenance mode"
     orch host maintenance enter ${osdhost} --force
-
-    if [ ! -z "$lasthost" ]; then
-        pullData $lasthost
-    fi
-    pushData $osdhost
-    lasthost=$osdhost
 
     for osdid in ${osdids}; do
         log "INFO: Processing osd.${osdid} on ${osdhost}"
@@ -64,6 +61,7 @@ recopath=/var/log/ceph/monrecovery
 echo $(date +%F\ %T) ${osdhost} INFO: Moving db and db_slow to ~/
 mv ${recopath}/{db,db_slow} ~/
 echo $(date +%F\ %T) ${osdhost} INFO: Running update-mon-db on ${datadir}
+cd ~/
 ceph-objectstore-tool --data-path ${datadir} --op  update-mon-db --no-mon-config --mon-store-path ${recopath}/ms
 RETVAL=\$?
 if [ \$RETVAL -ne 0 ]; then
@@ -84,5 +82,9 @@ mv ~/{db,db_slow} /var/log/ceph/monrecovery/
 EOF
     done
 
+    pullData ${osdhost}
+
+    log "INFO: Removing host ${osdhost} from maintenance mode"
     orch host maintenance exit ${osdhost}
 done
+
