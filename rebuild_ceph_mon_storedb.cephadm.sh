@@ -24,9 +24,7 @@ checkReturn $? "OSD list" 1
 
 dirbase=/tmp/monrecovery.$(date +%F_%H-%M-%S)
 log "INFO: Setting up directory structure in ${dirbase}"
-localdirs="ms db db_slow"
-
-for mydir in $localdirs; do
+for mydir in ms db db_slow logs; do
     mkdir -p "${dirbase}/${mydir}" &> /dev/null
 done
 
@@ -51,7 +49,7 @@ mv \${recopath}/{db,db_slow} ~/
 for datadir in /var/lib/ceph/osd/ceph-*; do
     log "INFO: Running update-mon-db on \${datadir}"
     cd ~/
-    ceph-objectstore-tool --data-path \${datadir} --type bluestore --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms
+    ceph-objectstore-tool --data-path \${datadir} --type bluestore --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms \&> \${recopath}/logs/osd.\${osdid}_cot.log
     checkReturn \$? "COT update-mon-db"
 
     if [ -e \${datadir}/keyring ]; then
@@ -93,7 +91,7 @@ for hostosd in $osd_list; do
     log "INFO: Starting osd_mon-store.db_rebuild.sh loop on ${osdhost}"
     ssh ${osdhost} <<EOF
 for osdid in ${osdids}; do
-    cephadm shell --name osd.\${osdid} /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh \&> /var/log/ceph/${fsid}/monrecovery/logs/osd.\${osdid}_cot.log
+    cephadm shell --name osd.\${osdid} /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh
 done
 EOF
 
