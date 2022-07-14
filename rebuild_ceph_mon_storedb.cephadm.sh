@@ -51,7 +51,7 @@ for hostosd in $osd_list; do
     pushData $osdhost
 
     log "INFO: Putting host ${osdhost} into maintenance mode"
-    orch host maintenance enter ${osdhost} --force
+    ceph orch host maintenance enter ${osdhost} --force
 
     for osdid in ${osdids}; do
         log "INFO: Processing osd.${osdid} on ${osdhost}"
@@ -85,6 +85,6 @@ EOF
     pullData ${osdhost}
 
     log "INFO: Removing host ${osdhost} from maintenance mode"
-    orch host maintenance exit ${osdhost}
+    ceph orch host maintenance exit ${osdhost}
 done
 
