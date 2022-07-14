@@ -43,6 +43,7 @@ checkReturn() {
 }
 
 log "INFO: Sleep 5 seconds for filesystem stabilization"
+sleep 5
 
 recopath=/var/log/ceph/monrecovery
 log "INFO: Moving db and db_slow to ~/"
