@@ -72,36 +72,34 @@ chmod 755 ${dirbase}/osd_mon-store.db_rebuild.sh
 
 pullData() {
     log "INFO: Pulling ${1}:/var/log/ceph/${fsid}/monrecovery/"
-    rsync -avz --delete --remove-source-files ${1}:/var/log/ceph/${fsid}/monrecovery/ ${dirbase}/
+    rsync -aqz --delete --remove-source-files ${1}:/var/log/ceph/${fsid}/monrecovery/ ${dirbase}/
     checkReturn $? "Pulling ${1}:/var/lib/ceph/${fsid}/monrecovery" 1
 }
 
 pushData() {
     log "INFO: Pushing ${1}:/var/log/ceph/${fsid}/monrecovery/"
-    rsync -avz --delete --remove-source-files ${dirbase}/ ${1}:/var/log/ceph/${fsid}/monrecovery/
+    rsync -aqz --delete --remove-source-files ${dirbase}/ ${1}:/var/log/ceph/${fsid}/monrecovery/
     checkReturn $? "Pushing ${1}:/var/lib/ceph/${fsid}/monrecovery" 1
 }
 
-lasthost=""
 for hostosd in $osd_list; do
     osdhost=$(echo $hostosd | sed -e 's/,.*$//')
     osdids=$(echo $hostosd | sed -e 's/^[^,]*,//' -e 's/,/ /g')
+    log "INFO: Putting host ${osdhost} into maintenance mode"
+    ceph orch host maintenance enter ${osdhost} --force 2>&1 >> ${dirbase}/logs/${osdhost}_mgmt.log
 
     pushData $osdhost
-
-    log "INFO: Putting host ${osdhost} into maintenance mode"
-    ceph orch host maintenance enter ${osdhost} --force
 
     log "INFO: Starting osd_mon-store.db_rebuild.sh loop on ${osdhost}"
     ssh ${osdhost} <<EOF
 for osdid in ${osdids}; do
-    cephadm shell --name osd.\${osdid} /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh
+    cephadm shell --name osd.\${osdid} /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh \&> /var/log/ceph/${fsid}/monrecovery/logs/osd.\${osdid}_cot.log
 done
 EOF
 
     pullData ${osdhost}
 
     log "INFO: Removing host ${osdhost} from maintenance mode"
-    ceph orch host maintenance exit ${osdhost}
+    ceph orch host maintenance exit ${osdhost} 2>&1 >> ${dirbase}/logs/${osdhost}_mgmt.log
 done
 
