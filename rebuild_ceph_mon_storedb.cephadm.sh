@@ -95,7 +95,7 @@ for hostosd in $osd_list; do
     log "INFO: Starting osd_rebuild.sh loop on ${osdhost}"
     ssh ${osdhost} <<EOF
 for osdid in ${osdids}; do
-    cephadm shell --name osd.\${osdid} /var/lib/ceph/monrecovery/osd_rebuild.sh
+    cephadm shell --name osd.\${osdid} /var/log/ceph/monrecovery/osd_rebuild.sh
 done
 EOF
 
