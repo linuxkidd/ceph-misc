@@ -7,7 +7,7 @@ log() {
 checkReturn() {
     if [ $1 -ne 0 ]; then
         log "ERROR: ${2} failed: returned ${1}"
-        if [ ! -z "$3" ];
+        if [ ! -z "$3" ]; then
             exit $1
         fi
     fi
