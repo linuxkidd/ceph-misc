@@ -30,8 +30,8 @@ for mydir in $localdirs; do
     mkdir -p "${dirbase}/${mydir}" &> /dev/null
 done
 
-log "INFO: Creating osd_rebuild.sh script"
-cat <<EOF > ${dirbase}/osd_rebuild.sh
+log "INFO: Creating osd_mon-store.db_rebuild.sh script"
+cat <<EOF > ${dirbase}/osd_mon-store.db_rebuild.sh
 #!/bin/bash
 
 log() {
@@ -68,7 +68,7 @@ done
 log "INFO: Moving db and db_slow from ~/"
 mv ~/{db,db_slow} /var/log/ceph/monrecovery/
 EOF
-chmod 755 ${dirbase}/osd_rebuild.sh
+chmod 755 ${dirbase}/osd_mon-store.db_rebuild.sh
 
 pullData() {
     log "INFO: Pulling ${1}:/var/log/ceph/${fsid}/monrecovery/"
@@ -92,10 +92,10 @@ for hostosd in $osd_list; do
     log "INFO: Putting host ${osdhost} into maintenance mode"
     ceph orch host maintenance enter ${osdhost} --force
 
-    log "INFO: Starting osd_rebuild.sh loop on ${osdhost}"
+    log "INFO: Starting osd_mon-store.db_rebuild.sh loop on ${osdhost}"
     ssh ${osdhost} <<EOF
 for osdid in ${osdids}; do
-    cephadm shell --name osd.\${osdid} /var/log/ceph/monrecovery/osd_rebuild.sh
+    cephadm shell --name osd.\${osdid} /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh
 done
 EOF
 
