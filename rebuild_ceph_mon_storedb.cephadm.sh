@@ -20,9 +20,6 @@ osd_list=$(ceph orch ps | awk '/^osd\.[0-9][0-9]* / { gsub(/[^0-9]/,"",$1); osdl
 checkReturn $? "OSD list" 1
 
 
-log "INFO: Gathering Cluster FSID"
-fsid=$(awk '/fsid\ *=\ */ {print $NF}' /etc/ceph/ceph.conf)
-
 dirbase=/tmp/monrecovery.$(date +%F_%H-%M-%S)
 log "INFO: Setting up directory structure in ${dirbase}"
 localdirs="ms db db_slow"
@@ -30,6 +27,48 @@ localdirs="ms db db_slow"
 for mydir in $localdirs; do
     mkdir -p "${dirbase}/${mydir}" &> /dev/null
 done
+
+log "INFO: Creating osd_rebuild.sh script"
+cat <<EOF > ${dirbase}/osd_rebuild.sh
+#!/bin/bash
+
+log() {
+  echo \$(date +%F\ %T) \${HOSTNAME} "\$1"
+}
+
+checkReturn() {
+    if [ \$1 -ne 0 ]; then
+        log "ERROR: \${2} failed: returned \${1}"
+    fi
+}
+
+datadir=/var/lib/ceph/osd/ceph-*
+if [ ! -e \$datadir ]; then
+    echo $(date +%F\ %T) \${HOSTNAME} ERROR: No OSD data directory found
+    exit 1
+fi
+recopath=/var/log/ceph/monrecovery
+echo $(date +%F\ %T) \${HOSTNAME} INFO: Moving db and db_slow to ~/
+mv \${recopath}/{db,db_slow} ~/
+echo \$(date +%F\ %T) \${HOSTNAME} INFO: Running update-mon-db on \${datadir}
+cd ~/
+ceph-objectstore-tool --data-path \${datadir} --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms
+checkReturn \$? "COT update-mon-db"
+
+if [ -e \${datadir}/keyring ]; then
+    cat \${datadir}/keyring >> \${recopath}/ms/keyring
+    echo '    caps mgr = "allow profile osd"' >> \${recopath}/ms/keyring
+    echo '    caps mon = "allow profile osd"' >> \${recopath}/ms/keyring
+    echo '    caps osd = "allow *"' >> \${recopath}/ms/keyring
+    echo > \${recopath}/ms/keyring
+else
+    echo $(date +%F\ %T) \${HOSTNAME} WARNING: \${datadir} does not have a local keyring.
+fi
+
+echo $(date +%F\ %T) \${HOSTNAME} INFO: Moving db and db_slow from ~/
+mv ~/{db,db_slow} /var/log/ceph/monrecovery/
+EOF
+chmod 755 ${dirbase}/osd_rebuild.sh
 
 pullData() {
     log "INFO: Pulling ${1}:/var/log/ceph/${fsid}/monrecovery/"
@@ -53,34 +92,12 @@ for hostosd in $osd_list; do
     log "INFO: Putting host ${osdhost} into maintenance mode"
     ceph orch host maintenance enter ${osdhost} --force
 
-    for osdid in ${osdids}; do
-        log "INFO: Processing osd.${osdid} on ${osdhost}"
-        cephadm shell --fsid ${fsid} --name osd.${osdid} <<EOF
-datadir=/var/lib/ceph/osd/ceph-${osdid}
-recopath=/var/log/ceph/monrecovery
-echo $(date +%F\ %T) ${osdhost} INFO: Moving db and db_slow to ~/
-mv ${recopath}/{db,db_slow} ~/
-echo $(date +%F\ %T) ${osdhost} INFO: Running update-mon-db on ${datadir}
-cd ~/
-ceph-objectstore-tool --data-path ${datadir} --op  update-mon-db --no-mon-config --mon-store-path ${recopath}/ms
-RETVAL=\$?
-if [ \$RETVAL -ne 0 ]; then
-    echo $(date +%F\ %T) ${osdhost} WARNING: Processing of osd.${osdid} FAILED, continuing.
-else
-    if [ -e ${datadir}/keyring ]; then
-        cat ${datadir}/keyring >> ${recopath}/ms/keyring
-        echo '    caps mgr = "allow profile osd"' >> ${recopath}/ms/keyring
-        echo '    caps mon = "allow profile osd"' >> ${recopath}/ms/keyring
-        echo '    caps osd = "allow *"' >> ${recopath}/ms/keyring
-        echo > ${recopath}/ms/keyring
-    else
-        echo $(date +%F\ %T) ${osdhost} WARNING: osd.${osdid} does not have a local keyring.
-    fi
-fi
-echo $(date +%F\ %T) ${osdhost} INFO: Moving db and db_slow from ~/
-mv ~/{db,db_slow} /var/log/ceph/monrecovery/
+    log "INFO: Starting osd_recovery.sh loop on ${osdhost}"
+    ssh ${osdhost} <<EOF
+for osdid in ${osdids}; do
+    cephadm shell --name osd.\${osdid} /var/lib/ceph/monrecovery/osd_recovery.sh
+done
 EOF
-    done
 
     pullData ${osdhost}
 
