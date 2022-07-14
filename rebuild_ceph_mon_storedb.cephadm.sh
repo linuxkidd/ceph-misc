@@ -49,7 +49,7 @@ mv \${recopath}/{db,db_slow} ~/
 for datadir in /var/lib/ceph/osd/ceph-*; do
     log "INFO: Running update-mon-db on \${datadir}"
     cd ~/
-    ceph-objectstore-tool --data-path \${datadir} --type bluestore --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms \&> \${recopath}/logs/osd.\${osdid}_cot.log
+    ceph-objectstore-tool --data-path \${datadir} --type bluestore --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms &> \${recopath}/logs/osd.\$(basename \$datadir)_cot.log
     checkReturn \$? "COT update-mon-db"
 
     if [ -e \${datadir}/keyring ]; then
