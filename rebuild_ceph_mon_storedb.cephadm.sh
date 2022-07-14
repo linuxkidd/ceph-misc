@@ -13,7 +13,10 @@ checkReturn() {
     fi
 }
 
-osdid=$1
+log "INFO: Gathering fsid"
+fsid=$(awk '/fsid *= */ {print $NF}' /etc/ceph/ceph.conf)
+checkReturn $? "Gather FSID" 1
+
 log "INFO: Gathering OSD list"
 # CSV: host,osd[,osd]...
 osd_list=$(ceph orch ps | awk '/^osd\.[0-9][0-9]* / { gsub(/[^0-9]/,"",$1); osdlist[$2]=osdlist[$2]","$1 } END { hcount=asorti(osdlist,sorted); for(i=1;i<=hcount;i++) { print sorted[i] osdlist[sorted[i]]; }}')
@@ -92,10 +95,10 @@ for hostosd in $osd_list; do
     log "INFO: Putting host ${osdhost} into maintenance mode"
     ceph orch host maintenance enter ${osdhost} --force
 
-    log "INFO: Starting osd_recovery.sh loop on ${osdhost}"
+    log "INFO: Starting osd_rebuild.sh loop on ${osdhost}"
     ssh ${osdhost} <<EOF
 for osdid in ${osdids}; do
-    cephadm shell --name osd.\${osdid} /var/lib/ceph/monrecovery/osd_recovery.sh
+    cephadm shell --name osd.\${osdid} /var/lib/ceph/monrecovery/osd_rebuild.sh
 done
 EOF
 
