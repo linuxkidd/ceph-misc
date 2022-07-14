@@ -44,13 +44,13 @@ checkReturn() {
 
 datadir=/var/lib/ceph/osd/ceph-*
 if [ ! -e \$datadir ]; then
-    echo $(date +%F\ %T) \${HOSTNAME} ERROR: No OSD data directory found
+    log "ERROR: No OSD data directory found"
     exit 1
 fi
 recopath=/var/log/ceph/monrecovery
-echo $(date +%F\ %T) \${HOSTNAME} INFO: Moving db and db_slow to ~/
+log "INFO: Moving db and db_slow to ~/"
 mv \${recopath}/{db,db_slow} ~/
-echo \$(date +%F\ %T) \${HOSTNAME} INFO: Running update-mon-db on \${datadir}
+log "INFO: Running update-mon-db on \${datadir}"
 cd ~/
 ceph-objectstore-tool --data-path \${datadir} --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms
 checkReturn \$? "COT update-mon-db"
@@ -62,10 +62,10 @@ if [ -e \${datadir}/keyring ]; then
     echo '    caps osd = "allow *"' >> \${recopath}/ms/keyring
     echo > \${recopath}/ms/keyring
 else
-    echo $(date +%F\ %T) \${HOSTNAME} WARNING: \${datadir} does not have a local keyring.
+    log "WARNING: \${datadir} does not have a local keyring."
 fi
 
-echo $(date +%F\ %T) \${HOSTNAME} INFO: Moving db and db_slow from ~/
+log "INFO: Moving db and db_slow from ~/"
 mv ~/{db,db_slow} /var/log/ceph/monrecovery/
 EOF
 chmod 755 ${dirbase}/osd_rebuild.sh
