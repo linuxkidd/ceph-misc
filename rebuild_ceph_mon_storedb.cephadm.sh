@@ -22,7 +22,6 @@ log "INFO: Gathering OSD list"
 osd_list=$(ceph orch ps | awk '/^osd\.[0-9][0-9]* / { gsub(/[^0-9]/,"",$1); osdlist[$2]=osdlist[$2]","$1 } END { hcount=asorti(osdlist,sorted); for(i=1;i<=hcount;i++) { print sorted[i] osdlist[sorted[i]]; }}')
 checkReturn $? "OSD list" 1
 
-
 dirbase=/tmp/monrecovery.$(date +%F_%H-%M-%S)
 log "INFO: Setting up directory structure in ${dirbase}"
 localdirs="ms db db_slow"
@@ -45,28 +44,26 @@ checkReturn() {
     fi
 }
 
-datadir=/var/lib/ceph/osd/ceph-*
-if [ ! -e \$datadir ]; then
-    log "ERROR: No OSD data directory found"
-    exit 1
-fi
 recopath=/var/log/ceph/monrecovery
 log "INFO: Moving db and db_slow to ~/"
 mv \${recopath}/{db,db_slow} ~/
-log "INFO: Running update-mon-db on \${datadir}"
-cd ~/
-ceph-objectstore-tool --data-path \${datadir} --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms
-checkReturn \$? "COT update-mon-db"
 
-if [ -e \${datadir}/keyring ]; then
-    cat \${datadir}/keyring >> \${recopath}/ms/keyring
-    echo '    caps mgr = "allow profile osd"' >> \${recopath}/ms/keyring
-    echo '    caps mon = "allow profile osd"' >> \${recopath}/ms/keyring
-    echo '    caps osd = "allow *"' >> \${recopath}/ms/keyring
-    echo > \${recopath}/ms/keyring
-else
-    log "WARNING: \${datadir} does not have a local keyring."
-fi
+for datadir in /var/lib/ceph/osd/ceph-*; do
+    log "INFO: Running update-mon-db on \${datadir}"
+    cd ~/
+    ceph-objectstore-tool --data-path \${datadir} --type bluestore --op  update-mon-db --no-mon-config --mon-store-path \${recopath}/ms
+    checkReturn \$? "COT update-mon-db"
+
+    if [ -e \${datadir}/keyring ]; then
+        cat \${datadir}/keyring >> \${recopath}/ms/keyring
+        echo '    caps mgr = "allow profile osd"' >> \${recopath}/ms/keyring
+        echo '    caps mon = "allow profile osd"' >> \${recopath}/ms/keyring
+        echo '    caps osd = "allow *"' >> \${recopath}/ms/keyring
+        echo > \${recopath}/ms/keyring
+    else
+        log "WARNING: \${datadir} does not have a local keyring."
+    fi
+done
 
 log "INFO: Moving db and db_slow from ~/"
 mv ~/{db,db_slow} /var/log/ceph/monrecovery/
