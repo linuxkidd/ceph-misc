@@ -45,8 +45,8 @@ log() {
 }
 
 restoreOSD() {
-  if [ -e ${1}.yaml ]; then
-    #oc replace --force -f ${1}.${starttime}.yaml
+  if [ -e ${1}.${2}.yaml ]; then
+    oc replace --force -f ${1}.${2}.yaml
     RETVAL=$?
     if [ $RETVAL -ne 0 ]; then
       log "ERROR: Failed to restore deployment for osd.${1} - ret: $RETVAL"
@@ -86,7 +86,7 @@ waitOSDPod() {
 
   if [ $isRunning -eq 0 ]; then
     log "ERROR: Patched container failed to enter Running state."
-    restoreOSD $osdid
+    restoreOSD $osdid $starttime
     exit 1
   fi
   log "INFO: Sleeping 5 seconds for container init to complete."
@@ -292,7 +292,7 @@ if [ $allpgs -eq 1 ]; then
   RETVAL=$?
   if [ $RETVAL -ne 0 ]; then
     log "ERROR: Failed to dump list-pgs from osd.${osdid} - ret: $RETVAL"
-    restoreOSD $osdid
+    restoreOSD $osdid $starttime
     exit $RETVAL
   fi
 else
@@ -335,7 +335,7 @@ EOF
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to run pglog trim script for osd.${osdid} - ret: $RETVAL"
-  restoreOSD $osdid
+  restoreOSD $osdid $starttime
   exit $RETVAL
 fi
 
@@ -346,13 +346,13 @@ oc cp ${osdpod}:/var/log/ceph/osd.${osdid}/ ./osd.${osdid}/
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to copy data for osd.${osdid} - ret: $RETVAL"
-  restoreOSD $osdid
+  restoreOSD $osdid $starttime
   exit $RETVAL
 fi
 
 
 log "INFO: Reverting deployment for osd.${osdid}"
-restoreOSD $osdid
+restoreOSD $osdid $starttime
 
 if [ $manageflags -eq 1 ]; then
   log "INFO: scaling up rook-ceph and ocs operators"
