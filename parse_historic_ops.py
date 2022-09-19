@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys, json, operator
 from datetime import datetime
@@ -7,33 +7,19 @@ from datetime import datetime
 obj=json.load(sys.stdin)
 
 for op in obj["ops"]:
-    timespent={}
-    lastepoch=0
-    longestop=""
-    longestdt=""
-    longestsec=0
-    subopstart=0
-    firstdt=""
-    for event in op["type_data"]["events"]:
-        if(firstdt==""):
-            firstdt=event["time"]
-        utc_time = datetime.strptime(event["time"], "%Y-%m-%d %H:%M:%S.%f")
-        gmtime = (utc_time - datetime(1970, 1, 1)).total_seconds()
-        if(event["event"] not in timespent):
-            if(lastepoch==0):
-                lastepoch=gmtime
-            timespent[event["event"]]={ 'delta':(gmtime-lastepoch), 'lastepoch': gmtime, 'lastdt':event["time"] }
-            if(event["event"][:23]=="waiting for subops from"):
-                subopstart=gmtime
-            elif(event["event"][:22]=="sub_op_commit_rec from"):
-                timespent[event["event"]]={ 'delta':(gmtime-subopstart), 'lastepoch': gmtime, 'lastdt':event["time"] }
-
-        else:
-            timespent[event["event"]]['delta']+=gmtime-timespent[event["event"]]["lastepoch"]
-            timespent[event["event"]]["lastepoch"]=gmtime
-            timespent[event["event"]]["lastdt"]=event["time"]
-        lastepoch=gmtime
-    print("{0} {1}".format(firstdt,op["description"]))
+    remaining_time=op["age"]
+    event=op["type_data"]["events"]
+    for i in range(len(event)):
+        utc_time = datetime.strptime(event[i]["time"], "%Y-%m-%d %H:%M:%S.%f")
+        event[i]["gmtime"] = (utc_time - datetime(1970, 1, 1)).total_seconds()
+        event[i]["delta"] = 0
+    print("{0} {1}".format(op["initiated_at"],op["description"]))
     print("\tAge: {0} / Duration: {1}".format(op["age"],op["duration"]))
-    for event, edata in sorted(timespent.iteritems(), key=lambda (k,v): (v["lastepoch"],k)):
-        print("\t{0:8.4f} {1:s} {2:s}".format(edata["delta"],edata["lastdt"],event))
+    events=sorted(op["type_data"]["events"], key=lambda d: d["gmtime"])
+    for i in range(len(events)):
+        if i > 0:
+            event[i-1]["delta"]=event[i]["gmtime"]-event[i-1]["gmtime"]
+            remaining_time-=event[i-1]["delta"]
+        if i == len(op["type_data"]["events"])-1:
+            event[i]["delta"]=remaining_time
+        print(f"\t{events[i]['delta']:8.4f} {events[i]['time']:s} {events[i]['event']:s}")
