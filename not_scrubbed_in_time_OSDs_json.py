@@ -53,7 +53,7 @@ if len(scrub_osds) > 0:
     print()
 
 if len(deep_scrub_osds) > 0:
-    print("{} PGs not Deep Scrubbed in time:\n{}\n\nTop OSDs: ".format(len(scrub_pgs),' '.join(scrub_pgs)))
+    print("{} PGs not Deep Scrubbed in time:\n{}\n\nTop OSDs: ".format(len(deep_scrub_pgs),' '.join(deep_scrub_pgs)))
     for osdid in sorted(deep_scrub_osds, key=deep_scrub_osds.get)[-10:]:
         print(f"osd.{osdid},{deep_scrub_osds[osdid]}")
     print()
