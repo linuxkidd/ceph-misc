@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import sys, json, operator
 from datetime import datetime
@@ -7,7 +7,7 @@ from datetime import datetime
 obj=json.load(sys.stdin)
 
 for op in obj["ops"]:
-    remaining_time=op["age"]
+    remaining_time=op["duration"]
     event=op["type_data"]["events"]
     for i in range(len(event)):
         utc_time = datetime.strptime(event[i]["time"], "%Y-%m-%d %H:%M:%S.%f")
@@ -22,4 +22,4 @@ for op in obj["ops"]:
             remaining_time-=event[i-1]["delta"]
         if i == len(op["type_data"]["events"])-1:
             event[i]["delta"]=remaining_time
-        print(f"\t{events[i]['delta']:8.4f} {events[i]['time']:s} {events[i]['event']:s}")
+        print("\t{0:10.6f} {1:s} {2:s}".format(events[i]['delta'],events[i]['time'],events[i]['event']))
