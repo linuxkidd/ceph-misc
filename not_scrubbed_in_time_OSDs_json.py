@@ -8,10 +8,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-f", "--file",  default = "", required=True, help="Filename of the 'ceph pg dump --format=json' output")
 parser.add_argument("-d", "--deep",  default = 7, type=int, help="Deep Scrub Interval ( days ) - Default: 7")
 parser.add_argument("-s", "--scrub", default = 1, type=int, help="Scrub Interval ( days ) - Default: 1")
+parser.add_argument("-e", "--deepwarnratio",  default = 0.75, type=float, help="Deep Scrub Warn Ratio - Default: 0.75")
+parser.add_argument("-t", "--scrubwarnratio", default = 0.5, type=float, help="Scrub Warn Ratio - Default: 0.5")
 args = parser.parse_args()
 
-scrub_interval=args.scrub*86400
-deep_scrub_interval=args.deep*86400
+scrub_interval=args.scrub * 86400 * ( 1 + args.scrubwarnratio )
+deep_scrub_interval=args.deep * 86400 * ( 1 + args.deepwarnratio )
+
 scrub_osds = {}
 deep_scrub_osds = {}
 scrub_pgs = []
