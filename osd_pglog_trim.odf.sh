@@ -260,9 +260,9 @@ if [ ! -z "$imagerepo" ]; then
   fi
 fi
 
-log "INFO: Setting CPU/Memory to 8/64"
+log "INFO: Setting CPU/Memory to 4/32"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
-resp=$(oc set resources deployment rook-ceph-osd-${osdid} --limits=cpu=8,memory=64Gi --requests=cpu=8,memory=64Gi)
+resp=$(oc set resources deployment rook-ceph-osd-${osdid} -c osd --limits=cpu=4,memory=32Gi --requests=cpu=4,memory=32Gi)
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to set CPU/Memory osd.${osdid} - ret: $RETVAL"
