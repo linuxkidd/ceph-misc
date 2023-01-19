@@ -2,7 +2,7 @@
 usage() {
   cat <<EOF >&2
 
-Usage: $0 -o <osdid> [-f <0|1>] [-i <imageurl>] [-m <maxPGLog>] [-p <pgid>] [-d <0|1>]
+Usage: $0 -o <osdid> [-f <0|1>] [-i <imageurl>] [-m <maxPGLog>] [-p <pgid>] [-d <0|1>] [-c <1..x>] [-r <4..x>]
 
 Where:
     -o <osdid>    is the numeric ID of the OSD to run against.
@@ -24,16 +24,22 @@ Where:
                   ( optional, default is trim all PGs on the OSD )
 
     -d <0|1>      Set to 1 to enable post-trim PGlog dump
-	                ( optional, default is 0 - not generate post-trim PGlog dump )
+                  ( optional, default is 0 - not generate post-trim PGlog dump )
+
+    -c <1..x>     The number of CPU cores to allocate to the OSD container
+                  ( optional, default is 4 )
+
+    -r <4..x>     The amount of memory ( in GB ) to allocate to the OSD container
+                  ( optional, default is 32 )
 
     NOTES:
      - The specified OSD will be stopped for some period of time, then restarted.
      - If '-f 1' is NOT specified, recommend setting 'noout' flag before, then unsetting after.
        #-- Before --
        $ oc scale deployment {rook-ceph,ocs}-operator --replicas=0 -n openshift-storage
-       $ oc rsh -n openshift-storage $(oc get po -l app=rook-ceph-tools -oname) ceph osd set noout
+       $ oc rsh -n openshift-storage \$(oc get po -l app=rook-ceph-tools -oname) ceph osd set noout
        #-- After --
-       $ oc rsh -n openshift-storage $(oc get po -l app=rook-ceph-tools -oname) ceph osd unset noout
+       $ oc rsh -n openshift-storage \$(oc get po -l app=rook-ceph-tools -oname) ceph osd unset noout
        $ oc scale deployment {rook-ceph,ocs}-operator --replicas=1 -n openshift-storage
 
 EOF
@@ -115,8 +121,10 @@ pgid=""
 error=0
 posttrimdump=0
 manageflags=0
+cpu=4
+ram=32
 
-while getopts ":o:i:m:n:p:d:f:" o; do
+while getopts ":o:i:m:n:p:d:f:c:r:" o; do
   case "${o}" in
     d)
       if [ $(echo ${OPTARG} | egrep -c "^[0-1]$") -eq 1 ]; then
@@ -176,7 +184,25 @@ while getopts ":o:i:m:n:p:d:f:" o; do
 	      error=1
       fi
       ;;
-    *)
+    c)
+      if [ $(echo ${OPTARG} | egrep -c '^[0-9][0-9]*$') -eq 1 ] && [ ${OPTARG} -gt 0 ]; then
+        cpu=${OPTARG}
+      else
+        echo
+        echo "ERROR: -c parameter must be integer value of 1 or higher."
+	      error=1
+      fi
+      ;;
+     r)
+      if [ $(echo ${OPTARG} | egrep -c '^[0-9][0-9]*$') -eq 1 ] && [ ${OPTARG} -gt 3 ]; then
+        ram=${OPTARG}
+      else
+        echo
+        echo "ERROR: -r parameter must be integer value of 4 or higher."
+	      error=1
+      fi
+      ;;
+     *)
       echo
       echo "Unrecognized argument: ${o}"
       usage
@@ -199,6 +225,8 @@ starttime=$(date +%F_%H-%M-%S)
 
 log "PARAM: Paramters:"
 log "PARAM:   osdid=${osdid}"
+log "PARAM:   cpu=${cpu}"
+log "PARAM:   ram=${ram}"
 log "PARAM:   cephadmopts=${cephadmopts}"
 log "PARAM:   maxtrim=${maxtrim}"
 log "PARAM:   allpgs=${allpgs}"
@@ -260,9 +288,9 @@ if [ ! -z "$imagerepo" ]; then
   fi
 fi
 
-log "INFO: Setting CPU/Memory to 4/32"
+log "INFO: Setting CPU/Memory to ${cpu}/${ram}"
 osdpod=$(oc get pod -l osd=${osdid} -o name)
-resp=$(oc set resources deployment rook-ceph-osd-${osdid} -c osd --limits=cpu=4,memory=32Gi --requests=cpu=4,memory=32Gi)
+resp=$(oc set resources deployment rook-ceph-osd-${osdid} -c osd --limits=cpu=${cpu},memory=${ram}Gi --requests=cpu=${cpu},memory=${ram}Gi)
 RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
   log "ERROR: Failed to set CPU/Memory osd.${osdid} - ret: $RETVAL"
