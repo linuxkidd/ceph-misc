@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
-import sys,json
+import json,sys
 from datetime import datetime
 
 
 obj=json.load(sys.stdin)
+dt_format = "%Y-%m-%d %H:%M:%S.%f" 
 
 for op in obj["ops"]:
     lastepoch=0
@@ -12,7 +13,10 @@ for op in obj["ops"]:
     longestdt=""
     longestsec=0
     for event in op["type_data"]["events"]:
-        utc_time = datetime.strptime(event["time"], "%Y-%m-%d %H:%M:%S.%f")
+        if "T" in event["time"]:
+            dt_format="%Y-%m-%dT%H:%M:%S.%f"
+
+        utc_time = datetime.strptime(event["time"].split("+")[0], dt_format)
         gmtime = (utc_time - datetime(1970, 1, 1)).total_seconds()
         if(lastepoch>0):
             delta=gmtime-lastepoch
