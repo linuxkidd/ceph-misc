@@ -1,7 +1,6 @@
 #!/usr/bin/bash
 
-
-# Please edit this script and set this to a space deliminated list of your osd hosts
+# Please edit this script and set this to a space deliminated list of your osd hosts or pass via cli parameters
 osd_hosts=""
 
 # ----------- Do not edit below this line -----------
