@@ -1,18 +1,20 @@
 #!/usr/bin/bash
 
+
 # Please edit this script and set this to a space deliminated list of your osd hosts
 osd_hosts=""
 
-# or you can also pass a list of the osd nodes as parameters
-for node in "$@"; do
-    if [ "$osd_hosts" == "" ]; then
-        osd_hosts="$node"
-    else
-        osd_hosts+=" $node"
-    fi
-done
-
 # ----------- Do not edit below this line -----------
+display_usage() {
+
+    echo "$0 usage : "
+    echo "first parameter of -x will toggle on debugging"
+    echo "Pass osd hosts as additional paramters"
+    echo "You can also edit this script and set the osd_hosts variable"
+    echo "Expects that the admin node you're running this script from has root level ssh key access to all osd nodes"
+    exit
+
+}
 
 log() {
   echo $(date +%F\ %T) $(hostname -s) "$1"
@@ -27,6 +29,32 @@ checkReturn() {
     fi
 }
 
+if [ $# -eq 0 ]; then
+    display_usage
+    exit;
+fi
+
+# if first option is -x, we turn on set -x
+if [ "$1" == "-x" ]; then
+    set -x
+    shift
+fi
+
+# or you can also pass a list of the osd nodes as parameters
+if [ $# -gt 0 ] && [ "$osd_hosts" == "" ]; then
+    for node in "$@"; do
+        if [ "$osd_hosts" == "" ]; then
+            osd_hosts="$node"
+        else
+            osd_hosts+=" $node"
+        fi
+    done
+else
+    if [ "$osd_hosts" == "" ]; then
+        log "Error: Please edit this script and configure the osd_hosts option with the list of all OSD hosts in your cluster."
+        exit;
+    fi
+fi
 log "INFO: Gathering fsid"
 fsid=$(awk '/fsid *= */ {print $NF}' /etc/ceph/ceph.conf)
 checkReturn $? "Gather FSID" 1
@@ -36,12 +64,6 @@ log "INFO: Gathering OSD list"
 # if all mons are down, ceph orch is likely inaccessible
 #osd_list=$(ceph orch ps | awk '/^osd\.[0-9][0-9]* / { gsub(/[^0-9]/,"",$1); osdlist[$2]=osdlist[$2]","$1 } END { hcount=asorti(osdlist,sorted); for(i=1;i<=hcount;i++) { print sorted[i] osdlist[sorted[i]]; }}')
 # so sometimes we need to build this differently
-
-
-if [ "$osd_hosts" == "" ]; then
-    log "Error: Please edit this script and configure the osd_hosts option with the list of all OSD hosts in your cluster."
-    exit;
-fi
 
 osd_list=""
 for h in $osd_hosts; do
@@ -70,7 +92,8 @@ log "INFO: Creating osd_mon-store.db_rebuild.sh script"
 cat <<EOF > ${dirbase}/osd_mon-store.db_rebuild.sh
 #!/bin/bash
 recopath=/var/log/ceph/monrecovery
-logfile=\${recopath}/logs/\$(ls /var/lib/ceph/osd)_recover.log
+logfile="\${recopath}/logs/\$(ls /var/lib/ceph/osd)_recover.log"
+echo > \$logfile
 
 # log all output from this to
 log() {
@@ -102,6 +125,8 @@ for datadir in /var/lib/ceph/osd/ceph-*; do
 done
 log "INFO: Moving db and db_slow from ~/"
 mv ~/{db,db_slow} /var/log/ceph/monrecovery/
+log "INFO: monrecovery directory listing \n \$(ls -laR /var/log/ceph/monrecovery/)"
+
 EOF
 chmod 755 ${dirbase}/osd_mon-store.db_rebuild.sh
 
@@ -171,3 +196,7 @@ done
 log "INFO: Done. ... document further steps. https://docs.ceph.com/en/quincy/rados/troubleshooting/troubleshooting-mon/#mon-store-recovery-using-osds"
 log "INFO: ceph-monstore-tool ${dirbase} rebuild -- --keyring /path/to/admin.keyring --mon-ids alpha beta gamma"
 log "INFO: Need to specify mon-ids in numerical IP address order"
+log "INFO: Final Results : $(ls -laR $dirbase)"
+if [ ! -e $dirbase/ms/store.db ]; then
+    log "ERROR:  Something did not go as expected. No store.db directory generated."
+fi
