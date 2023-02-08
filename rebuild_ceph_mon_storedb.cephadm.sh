@@ -1,6 +1,18 @@
 #!/usr/bin/bash
 
+# Please edit this script and set this to a space deliminated list of your osd hosts
+osd_hosts=""
 
+# or you can also pass a list of the osd nodes as parameters
+for node in "$@"; do
+    if [ "$osd_hosts" == "" ]; then
+        osd_hosts="$node"
+    else
+        osd_hosts+=" $node"
+    fi
+done
+
+# ----------- Do not edit below this line -----------
 
 log() {
   echo $(date +%F\ %T) $(hostname -s) "$1"
@@ -25,8 +37,6 @@ log "INFO: Gathering OSD list"
 #osd_list=$(ceph orch ps | awk '/^osd\.[0-9][0-9]* / { gsub(/[^0-9]/,"",$1); osdlist[$2]=osdlist[$2]","$1 } END { hcount=asorti(osdlist,sorted); for(i=1;i<=hcount;i++) { print sorted[i] osdlist[sorted[i]]; }}')
 # so sometimes we need to build this differently
 
-# Please edit this script and set this to a space deliminated list of your osd hosts
-osd_hosts=""
 
 if [ "$osd_hosts" == "" ]; then
     log "Error: Please edit this script and configure the osd_hosts option with the list of all OSD hosts in your cluster."
@@ -35,15 +45,12 @@ fi
 
 osd_list=""
 for h in $osd_hosts; do
-        host_output=$(ssh -T $h <<EOF
-lvs --noheadings -a -o lv_tags | tr "," "\n" | awk -v hostname=\$(hostname) -F= 'BEGIN { printf("%s",hostname); } /^ceph\.osd_id=/ {printf(",%d", \$2)} END { print "" }'
-EOF
-)
-	if [ "$osd_list" == "" ]; then
-		osd_list="$host_output"
-	else
-		osd_list+=" $host_output"
-	fi
+    remote_output=$(ssh -T $h lvs --noheadings -a -o lv_tags)
+    host_string="${h},"
+    for lvs in $remote_output; do
+        host_string+=$(echo $lvs|sed 's/.*,ceph\.osd_id=\([[:digit:]]*\),.*/\1/'|tr "\n" ",")
+    done
+    osd_list+=" $(echo ${host_string}|sed 's/,$//')"
 done
 
 checkReturn $? "OSD list" 1
