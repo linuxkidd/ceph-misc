@@ -1,6 +1,7 @@
 #!/usr/bin/bash
 
-# Please edit this script and set this to a space deliminated list of your osd hosts or pass via cli parameters
+
+# Please edit this script and set this to a space deliminated list of your osd hosts
 osd_hosts=""
 
 # ----------- Do not edit below this line -----------
@@ -108,9 +109,22 @@ sleep 5
 log "INFO: Moving db and db_slow to ~/"
 mv \${recopath}/{db,db_slow} ~/
 for datadir in /var/lib/ceph/osd/ceph-*; do
+    log "INFO: Checking for locks on \${datadir} before trying ceph-objectstore-tool"
+    lslocks |grep \${datadir} >> \${logfile}
+    count=0
+    while  [ "\$?" == "0" ]; do
+        log "DEBUG: still locked, sleeping for 5 seconds"
+        sleep 5
+        ((count++))
+        if [ "\${count}" == "10" ]; then
+            log "ERROR: osd is still locked after 10 attempts, failing"
+            exit 1
+        fi
+        lslocks |grep \${datadir} >> \${logfile}
+    done
+
     log "INFO: Running update-mon-db on \${datadir}"
-    cd ~/
-    CEPH_ARGS="--no_mon_config" ceph-objectstore-tool --data-path \${datadir} --type bluestore --op  update-mon-db --mon-store-path \${recopath}/ms &> \${recopath}/logs/osd.\$(basename \$datadir)_cot.log
+    CEPH_ARGS="--no_mon_config" ceph-objectstore-tool --debug --data-path \${datadir} --type bluestore --op  update-mon-db --mon-store-path \${recopath}/ms &> \${recopath}/logs/osd.\$(basename \$datadir)_cot.log
     checkReturn \$? "COT update-mon-db"
     if [ -e \${datadir}/keyring ]; then
         cat \${datadir}/keyring >> \${recopath}/ms/keyring
@@ -125,7 +139,6 @@ done
 log "INFO: Moving db and db_slow from ~/"
 mv ~/{db,db_slow} /var/log/ceph/monrecovery/
 log "INFO: monrecovery directory listing \n \$(ls -laR /var/log/ceph/monrecovery/)"
-
 EOF
 chmod 755 ${dirbase}/osd_mon-store.db_rebuild.sh
 
@@ -160,8 +173,9 @@ for hostosd in $osd_list; do
     # make a script locally, scp it and run it remotely. unescaped variables will expand, escaped will be variables on the remote host
     cat <<EOF > ${dirbase}/recover_${osdhost}.sh
 #!/bin/bash
+logfile="/var/log/ceph/${fsid}/monrecovery/logs/${osdhost}.log"
 log() {
-  echo \$(date +%F\ %T) \${HOSTNAME} "\$1"
+  echo \$(date +%F\ %T) \${HOSTNAME} "\$1" >> \${logfile}
 }
 checkReturn() {
     if [ \$1 -ne 0 ]; then
@@ -171,13 +185,29 @@ checkReturn() {
 
 for osdid in ${osdids}; do
     # barebones container with the recovery script as the entry point  pointing to all of the specifics for the osd
-    shell_cmd=\$(/bin/podman run -i --rm --ipc=host --stop-signal=SIGTERM --authfile=/etc/ceph/podman-auth.json --net=host --entrypoint /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh --privileged  -v /var/run/ceph/${fsid}:/var/run/ceph:z -v /var/log/ceph/${fsid}:/var/log/ceph:z -v /var/lib/ceph/${fsid}/osd.\${osdid}:/var/lib/ceph/osd/ceph-\${osdid}:z -v /var/lib/ceph/${fsid}/osd.\${osdid}/config:/etc/ceph/ceph.conf:z -v /dev:/dev -v /run/udev:/run/udev -v /sys:/sys -v /run/lvm:/run/lvm -v /run/lock/lvm:/run/lock/lvm -v /var/lib/ceph/${fsid}/selinux:/sys/fs/selinux:ro -v /:/rootfs registry.redhat.io/rhceph/rhceph-5-rhel8@sha256:3075e8708792ebd527ca14849b6af4a11256a3f881ab09b837d7af0f8b2102ea )
+    shell_cmd="/bin/podman run -i --rm --ipc=host --stop-signal=SIGTERM --authfile=/etc/ceph/podman-auth.json --net=host --entrypoint /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh --privileged  -v /var/run/ceph/${fsid}:/var/run/ceph:z -v /var/log/ceph/${fsid}:/var/log/ceph:z -v /var/lib/ceph/${fsid}/osd.\${osdid}:/var/lib/ceph/osd/ceph-\${osdid}:z -v /var/lib/ceph/${fsid}/osd.\${osdid}/config:/etc/ceph/ceph.conf:z -v /dev:/dev -v /run/udev:/run/udev -v /sys:/sys -v /run/lvm:/run/lvm -v /run/lock/lvm:/run/lock/lvm -v /var/lib/ceph/${fsid}/selinux:/sys/fs/selinux:ro -v /:/rootfs registry.redhat.io/rhceph/rhceph-5-rhel8@sha256:3075e8708792ebd527ca14849b6af4a11256a3f881ab09b837d7af0f8b2102ea"
 
-    systemctl stop ceph-${fsid}@osd.\${osdid}.service
-    # use the podman straight from the unit.run file
+    systemctl stop ceph-${fsid}@osd.\${osdid}.service >> \$logfile
+    checkReturn $? "Stopping osd \${osdid}" 1
+    # after stopping this osd, we loop up to 10 times waiting for the lock on the osd fsid to disappear
+    # otherwise the  entrypoint script will fail because the osd still has a lock on the device
+    sleep 10
+    count=0
+    lslocks |grep /var/lib/ceph/osd/ceph-\${osdid}/fsid > /dev/null
+    while [ "\$?" == "0" ]; do
+        sleep 10
+        ((count++))
+        if [ \$count -gt 10 ]; then
+            log "ERROR: We've looped 10 times waiting for \${osdid} to stop."
+            exit
+        fi
+        lslocks |grep /var/lib/ceph/osd/ceph-\${osdid}/fsid > /dev/null
+    done
+    # run the container with the osd_mon-store.db_rebuild.sh entry point
     exec \$shell_cmd
 
-    systemctl start ceph-${fsid}@osd.\${osdid}.service
+    systemctl start ceph-${fsid}@osd.\${osdid}.service >> \$logfile
+    sleep 10
 done
 EOF
     chmod +x ${dirbase}/recover_${osdhost}.sh
@@ -191,6 +221,11 @@ EOF
     # again, no maintenance mode used, unset any flags
     # log "INFO: Removing host ${osdhost} from maintenance mode"
     # ceph orch host maintenance exit ${osdhost} 2>&1 >> ${dirbase}/logs/${osdhost}_mgmt.log
+    # when done with the current osd host, sleep for another 60 seconds and then prompt for the next node
+    #
+    sleep 60
+    log "CONFIRM: Done with ${osdhost} - Please confirm when you're ready to move on to the next osd node. Press any key to continue, CTRL-C to quit"
+    read ans
 done
 log "INFO: Done. ... document further steps. https://docs.ceph.com/en/quincy/rados/troubleshooting/troubleshooting-mon/#mon-store-recovery-using-osds"
 log "INFO: ceph-monstore-tool ${dirbase} rebuild -- --keyring /path/to/admin.keyring --mon-ids alpha beta gamma"
