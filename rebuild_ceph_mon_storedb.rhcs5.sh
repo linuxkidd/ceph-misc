@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 
 
-# Please edit this script and set this to a space deliminated list of your osd hosts
+# Please edit this script and set this to a space delimitated list of your osd hosts
 osd_hosts=""
 
 # ----------- Do not edit below this line -----------
@@ -29,10 +29,11 @@ checkReturn() {
     fi
 }
 
-if [ $# -eq 0 ]; then
+if [ $# -eq 0 ] && [ "$osd_hosts" == "" ]; then
     display_usage
     exit;
 fi
+
 
 # if first option is -x, we turn on set -x
 if [ "$1" == "-x" ]; then
@@ -58,6 +59,21 @@ fi
 log "INFO: Gathering fsid"
 fsid=$(awk '/fsid *= */ {print $NF}' /etc/ceph/ceph.conf)
 checkReturn $? "Gather FSID" 1
+
+
+# determine the container engine in-use. use rpm as there is a podman-docker container that supplies a podman 'docker' symlink
+# defaults to checking for podman
+container_engine=$(which podman)
+if [ "$?" == "1" ]; then
+	container_engine=$(which docker)
+	if [ "$?" == "1" ]; then
+		container_engine=$(which crio)
+		checkReturn $? "Checking for container enginer" 1
+	fi
+fi
+log "INFO: Using $container_engine for containers"
+
+exit;
 
 log "INFO: Gathering OSD list"
 # CSV: host,osd[,osd]...
