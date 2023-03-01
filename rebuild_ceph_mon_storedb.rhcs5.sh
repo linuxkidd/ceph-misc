@@ -1,8 +1,10 @@
 #!/usr/bin/bash
 
-
 # Please edit this script and set this to a space delimitated list of your osd hosts
 osd_hosts=""
+
+# RHCS 5.2 container - may need to edit this for future releases
+container="registry.redhat.io/rhceph/rhceph-5-rhel8@sha256:3075e8708792ebd527ca14849b6af4a11256a3f881ab09b837d7af0f8b2102ea"
 
 # ----------- Do not edit below this line -----------
 display_usage() {
@@ -72,8 +74,7 @@ if [ "$?" == "1" ]; then
 	fi
 fi
 log "INFO: Using $container_engine for containers"
-
-exit;
+log "INFO: Using $container for osd recovery container"
 
 log "INFO: Gathering OSD list"
 # CSV: host,osd[,osd]...
@@ -103,7 +104,7 @@ for mydir in ms db db_slow logs; do
     mkdir -p "${dirbase}/${mydir}" &> /dev/null
 done
 
-log "INFO: Creating osd_mon-store.db_rebuild.sh script"
+log "INFO: Creating container entrypoint script osd_mon-store.db_rebuild.sh"
 # osd_mon-store.db_rebuild.sh runs within the podman recovery container. log all of its output to a logfile
 cat <<EOF > ${dirbase}/osd_mon-store.db_rebuild.sh
 #!/bin/bash
@@ -176,15 +177,9 @@ for hostosd in $osd_list; do
     osdids=$(echo $hostosd | sed -e 's/^[^,]*,//' -e 's/,/ /g')
 
     # skipping maintenance mode. Do we want to set noout or any flags while we bounce the osds?
-    # log "INFO: Putting host ${osdhost} into maintenance mode"
-    # ceph orch host maintenance enter ${osdhost} --force 2>&1 >> ${dirbase}/logs/${osdhost}_mgmt.log
-    #
-    # Since ceph orch not available without the  monitors ... stop/start the osds below in the ssh loop
-    # we also do podman run instead of ceph orch
-    #
     pushData $osdhost
 
-    log "INFO: Starting osd_mon-store.db_rebuild.sh loop on ${osdhost} for OSDs $osdids"
+    log "INFO: Starting osd_mon-store.db_rebuild.sh loop on ${osdhost} for OSDs $osdids."
 
     # make a script locally, scp it and run it remotely. unescaped variables will expand, escaped will be variables on the remote host
     cat <<EOF > ${dirbase}/recover_${osdhost}.sh
@@ -200,8 +195,9 @@ checkReturn() {
 }
 
 for osdid in ${osdids}; do
+    log "INFO: ready to recover \${osdid}"
     # barebones container with the recovery script as the entry point  pointing to all of the specifics for the osd
-    shell_cmd="/bin/podman run -i --rm --ipc=host --stop-signal=SIGTERM --authfile=/etc/ceph/podman-auth.json --net=host --entrypoint /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh --privileged  -v /var/run/ceph/${fsid}:/var/run/ceph:z -v /var/log/ceph/${fsid}:/var/log/ceph:z -v /var/lib/ceph/${fsid}/osd.\${osdid}:/var/lib/ceph/osd/ceph-\${osdid}:z -v /var/lib/ceph/${fsid}/osd.\${osdid}/config:/etc/ceph/ceph.conf:z -v /dev:/dev -v /run/udev:/run/udev -v /sys:/sys -v /run/lvm:/run/lvm -v /run/lock/lvm:/run/lock/lvm -v /var/lib/ceph/${fsid}/selinux:/sys/fs/selinux:ro -v /:/rootfs registry.redhat.io/rhceph/rhceph-5-rhel8@sha256:3075e8708792ebd527ca14849b6af4a11256a3f881ab09b837d7af0f8b2102ea"
+    shell_cmd="${container_engine} run -i --rm --ipc=host --stop-signal=SIGTERM --authfile=/etc/ceph/podman-auth.json --net=host --entrypoint /var/log/ceph/monrecovery/osd_mon-store.db_rebuild.sh --privileged  -v /var/run/ceph/${fsid}:/var/run/ceph:z -v /var/log/ceph/${fsid}:/var/log/ceph:z -v /var/lib/ceph/${fsid}/osd.\${osdid}:/var/lib/ceph/osd/ceph-\${osdid}:z -v /var/lib/ceph/${fsid}/osd.\${osdid}/config:/etc/ceph/ceph.conf:z -v /dev:/dev -v /run/udev:/run/udev -v /sys:/sys -v /run/lvm:/run/lvm -v /run/lock/lvm:/run/lock/lvm -v /var/lib/ceph/${fsid}/selinux:/sys/fs/selinux:ro -v /:/rootfs ${container}"
 
     systemctl stop ceph-${fsid}@osd.\${osdid}.service >> \$logfile
     checkReturn $? "Stopping osd \${osdid}" 1
@@ -220,9 +216,11 @@ for osdid in ${osdids}; do
         lslocks |grep /var/lib/ceph/osd/ceph-\${osdid}/fsid > /dev/null
     done
     # run the container with the osd_mon-store.db_rebuild.sh entry point
-    exec \$shell_cmd
+    log "INFO: Starting container for osd recovery for \${osdid}"
+    eval \$shell_cmd
 
-    systemctl start ceph-${fsid}@osd.\${osdid}.service >> \$logfile
+    log "INFO: container finished with osd recovery for \${osdid}"
+    # No longer restarting the osd - documented procedure has "stop all osds".
     sleep 10
 done
 EOF
@@ -230,18 +228,10 @@ EOF
 
     scp -q ${dirbase}/recover_${osdhost}.sh $osdhost:/tmp/
     ssh -T ${osdhost} /tmp/recover_${osdhost}.sh
-    sleep 30
+    sleep 10
     ssh -T ${osdhost} rm -rf /tmp/recover_${osdhost}.sh
     pullData ${osdhost}
 
-    # again, no maintenance mode used, unset any flags
-    # log "INFO: Removing host ${osdhost} from maintenance mode"
-    # ceph orch host maintenance exit ${osdhost} 2>&1 >> ${dirbase}/logs/${osdhost}_mgmt.log
-    # when done with the current osd host, sleep for another 60 seconds and then prompt for the next node
-    #
-    sleep 60
-    log "CONFIRM: Done with ${osdhost} - Please confirm when you're ready to move on to the next osd node. Press any key to continue, CTRL-C to quit"
-    read ans
 done
 log "INFO: Done. ... document further steps. https://docs.ceph.com/en/quincy/rados/troubleshooting/troubleshooting-mon/#mon-store-recovery-using-osds"
 log "INFO: ceph-monstore-tool ${dirbase} rebuild -- --keyring /path/to/admin.keyring --mon-ids alpha beta gamma"
