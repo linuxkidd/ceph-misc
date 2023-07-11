@@ -134,8 +134,6 @@ log "  allpgs=${allpgs}"
 log "  pgid=${pgid}"
 log "  posttrimdump=${posttrimdump}"
 log "  manageflags=${manageflags}"
-
-
 log "INFO: Gathering fsid"
 
 fsid=$(awk '/fsid *= */ {print $NF}' /etc/ceph/ceph.conf)
@@ -143,6 +141,10 @@ if [ -z "${fsid}" ]; then
   log "ERROR: Could not retrieve cluster FSID from /etc/ceph/ceph.conf"
   exit 1
 fi
+log "NOTE: Output from the ceph-objectstore-tool commands are"
+log "NOTE: written to log files on the hosting node in the"
+log "NOTE: /var/log/ceph/${fsid}/osd.${osdid}/ directory"
+
 
 mkdir /var/log/ceph/${fsid}/osd.${osdid} &>/dev/null
 

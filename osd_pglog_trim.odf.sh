@@ -378,6 +378,10 @@ if [ $RETVAL -ne 0 ]; then
   exit $RETVAL
 fi
 
+log "NOTE: Output from the ceph-objectstore-tool commands are"
+log "NOTE: written to log files are now copied locally into"
+log "NOTE: the ./osd.${osdid}/ directory"
+
 
 log "INFO: Reverting deployment for osd.${osdid}"
 restoreOSD $osdid $starttime
