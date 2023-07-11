@@ -142,8 +142,8 @@ if [ -z "${fsid}" ]; then
   exit 1
 fi
 log "NOTE: Output from the ceph-objectstore-tool commands are"
-log "NOTE: written to log files on the hosting node in the"
-log "NOTE: /var/log/ceph/${fsid}/osd.${osdid}/ directory"
+log "NOTE: written to log files in the following directory:"
+log "NOTE: /var/log/ceph/${fsid}/osd.${osdid}/"
 
 
 mkdir /var/log/ceph/${fsid}/osd.${osdid} &>/dev/null
