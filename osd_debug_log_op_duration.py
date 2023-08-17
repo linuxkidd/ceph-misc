@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 
 """
+-- Example usage:
+  $ egrep '(dequeue_op .* (latency|finish)|log_op_stats)' ceph-osd.1.log* | ./osd_debug_log_op_duration.py > osd.1.duration.txt
+
 -- Operation:
   1. Find the `dequeue_op .* latency` line, catalog the date/time of the log line, as well as the reported 'latency' value.
   2. Find the `dequeue_op .* finish` line, catalog the date/time of the log line.
   3. Find the `log_op_stats` line reported `lat` value.
   4. Determine op duration by subtracting date/time of log line 1 from log line 2, then add the 'dequeue_op' latency in log line 1
   5. Print the calculated duration, the op ID ( the value after 'dequeue_op` in the log lines ), and the reported `log_op_stats` lat value.
+
 """
 
 
