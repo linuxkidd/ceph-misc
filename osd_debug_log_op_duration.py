@@ -19,10 +19,19 @@ from datetime import datetime
 
 dt_format="%Y-%m-%dT%H:%M:%S.%f"
 op_track={}
-threadidx = 3
+threadidx = 0
 
 for line in sys.stdin:
     line_parts = line.split(" ")
+    if not threadidx:
+        for i in range(6):
+            if re.match('^[0-9a-f]{12}$',line_parts[i]):
+                threadidx=i
+                break
+    if not threadidx:
+        print("Could not find thread ID field in log line.")
+        exit(1)
+
     try:
         if re.match('^.*\+.*$',line_parts[0]):
             dt = datetime.strptime(line_parts[0].split("+")[0], dt_format)
