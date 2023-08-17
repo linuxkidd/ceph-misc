@@ -9,9 +9,16 @@ threadidx = 3
 
 for line in sys.stdin:
     line_parts = line.split(" ")
-    dt = datetime.strptime(line_parts[0][:26], dt_format)
-    epoch = (dt - datetime(1970,1,1)).total_seconds()
-    epoch += float(line_parts[0][26:29])*0.000001
+    try:
+        if re.match('^.*\+.*$',line_parts[0]):
+            dt = datetime.strptime(line_parts[0].split("+")[0], dt_format)
+            epoch = (dt - datetime(1970,1,1)).total_seconds()
+        else:
+            dt = datetime.strptime(line_parts[0][:26], dt_format)
+            epoch = (dt - datetime(1970,1,1)).total_seconds()
+            epoch += float(line_parts[0][26:29])*0.000001
+    except:
+        continue
     try:
         opidx = line_parts.index('dequeue_op')+1
     except:
