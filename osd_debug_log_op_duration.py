@@ -2,7 +2,7 @@
 
 """
 -- Example usage:
-  $ egrep '(dequeue_op .* (latency|finish)|log_op_stats)' ceph-osd.1.log* | ./osd_debug_log_op_duration.py > osd.1.duration.txt
+  $ egrep -ah '(dequeue_op .* (latency|finish)|log_op_stats)' ceph-osd.1.log* | ./osd_debug_log_op_duration.py > osd.1.duration.txt
 
 -- Operation:
   1. Find the `dequeue_op .* latency` line, catalog the date/time of the log line, as well as the reported 'latency' value.
