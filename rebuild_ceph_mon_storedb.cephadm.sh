@@ -60,7 +60,7 @@ for datadir in /var/lib/ceph/osd/ceph-*; do
         echo '    caps mgr = "allow profile osd"' >> \${recopath}/ms/keyring
         echo '    caps mon = "allow profile osd"' >> \${recopath}/ms/keyring
         echo '    caps osd = "allow *"' >> \${recopath}/ms/keyring
-        echo > \${recopath}/ms/keyring
+        echo >> \${recopath}/ms/keyring
     else
         log "WARNING: \${datadir} does not have a local keyring."
     fi
