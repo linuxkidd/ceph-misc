@@ -28,6 +28,7 @@
 #
 
 usage() {
+    echo
     echo Usage:
     echo "    $0 <concurrency> <osd_scrub_sleep> <scrub_chunk>"
     echo
@@ -93,6 +94,10 @@ queuedscrub=$(ceph pg dump 2> /dev/null | grep -c 'queued for deep scrub')
 activescrub=$(ceph pg dump 2> /dev/null | grep -c 'scrubbing+deep')
 takenslots=$((queuedscrub + activescrub))
 openslots=$((CONCUR - takenslots))
+
+
+logline "$activescrub actively deep-scrubbing."
+logline "$queuedscrub queued for deep-scrub."
 logline "$openslots open scrub slots."
 
 if [ $openslots -gt 0 ]; then
