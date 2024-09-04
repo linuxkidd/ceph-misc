@@ -4,7 +4,7 @@
 #
 # by: Michael J. Kidd <linuxkidd@gmail.com>
 # version: 1.0
-# https://github.com/linuxkidd/ceph-misc/deep-scrub.sh
+# https://github.com/linuxkidd/ceph-misc/blob/main/deep-scrub.sh
 #
 #
 # Usage:
