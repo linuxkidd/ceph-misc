@@ -21,6 +21,11 @@
 #     <scrub_chunk>:      How many objects to read at a time for deep-scrub
 #                         (Optional, default: no change)
 #
+# NOTE:
+#      Automatic deep-scrub scheduling should be disabled in the cluster when
+#      using this tool for deep-scrub management.
+#      # ceph osd set nodeep-scrub
+#
 
 usage() {
     echo Usage:
@@ -36,6 +41,11 @@ usage() {
     echo
     echo "    <scrub_chunk>:      How many objects to read at a time for deep-scrub"
     echo "                        (Optional, default: no change)"
+    echo
+    echo NOTE:
+    echo "    Automatic deep-scrub scheduling should be disabled in the cluster when"
+    echo "    using this tool for deep-scrub management."
+    echo "    # ceph osd set nodeep-scrub"
     echo
     echo
     exit 1
