@@ -2,7 +2,7 @@
 Miscellaneous scripts I created for various tasks with Ceph.
 
 ## Table of Contents:
-- [process_ms_response_times.awk](#process_ms_response_timesawk)
+- [parse_ms_response_times.awk](#parse_ms_response_timesawk)
 - [colo_lvm_osds.sh](#colo_lvm_osdssh)
 - [dedicated_lvm_osds.sh](#dedicated_lvm_osdssh)
 - [find_upmap_items.py](#find_upmap_itemspy)
@@ -13,7 +13,7 @@ Missing documents for a script?  Check the file contents for more details.
 
 ## Tool Explanations:
 
-#### process_ms_response_times.awk
+#### parse_ms_response_times.awk
 - With `debug_ms=1` set, pass the resulting log file to the script
 - The script will output a CSV format detailing each message
 ** Notes: **
@@ -23,7 +23,7 @@ Missing documents for a script?  Check the file contents for more details.
 
 ##### Example:
 ```
-./process_ms_response_times.awk ceph-client.rgw.log
+./parse_ms_response_times.awk ceph-client.rgw.log
 start,end,duration,osd,pg,object
 2025-05-07 02:56:32.495,2025-05-07 02:56:47.127,14.632000,osd.390,58.54,.dir.default.437320374.599592.760
 2025-05-07 02:56:32.481,2025-05-07 02:56:47.114,14.633000,osd.390,58.25,.dir.default.437320374.599592.686
