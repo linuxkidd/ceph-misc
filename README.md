@@ -2,6 +2,7 @@
 Miscellaneous scripts I created for various tasks with Ceph.
 
 ## Table of Contents:
+- [process_ms_response_times.awk](#process_ms_response_timesawk)
 - [colo_lvm_osds.sh](#colo_lvm_osdssh)
 - [dedicated_lvm_osds.sh](#dedicated_lvm_osdssh)
 - [find_upmap_items.py](#find_upmap_itemspy)
@@ -11,6 +12,34 @@ Miscellaneous scripts I created for various tasks with Ceph.
 Missing documents for a script?  Check the file contents for more details.
 
 ## Tool Explanations:
+
+#### process_ms_response_times.awk
+- With `debug_ms=1` set, pass the resulting log file to the script
+- The script will output a CSV format detailing each message
+** Notes: **
+- This parser is targeted at OSD bound messages and replies.
+- It may kinda work on messages to other Ceph services, but has not been tested.
+- Tested with output from Ceph 14.x.  Newer releases may have changed log formatting causing unexpected results.
+
+##### Example:
+```
+./process_ms_response_times.awk ceph-client.rgw.log
+start,end,duration,osd,pg,object
+2025-05-07 02:56:32.495,2025-05-07 02:56:47.127,14.632000,osd.390,58.54,.dir.default.437320374.599592.760
+2025-05-07 02:56:32.481,2025-05-07 02:56:47.114,14.633000,osd.390,58.25,.dir.default.437320374.599592.686
+2025-05-07 02:56:32.501,2025-05-07 02:56:47.134,14.633000,osd.390,58.79,.dir.default.437320374.599592.787
+2025-05-07 02:56:32.485,2025-05-07 02:56:47.120,14.635000,osd.390,58.1a5,.dir.default.437320374.599592.709
+2025-05-07 02:56:32.497,2025-05-07 02:56:47.132,14.635000,osd.390,58.1b9,.dir.default.437320374.599592.769
+2025-05-07 02:56:32.498,2025-05-07 02:56:47.138,14.640000,osd.390,58.95,.dir.default.437320374.599592.777
+```
+
+##### Column definitions:
+start: The start time when the message was sent
+end: The end time when the response was received
+duration: Duration between start and end in seconds
+osd: The OSD where the message was sent
+pg: The PG id for the object
+object: The object name of the op
 
 #### colo_lvm_osds.sh
 - This script creates LVM layout on a single disk for deploying with `ceph-volume lvm` feature.
