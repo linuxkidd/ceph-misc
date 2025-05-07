@@ -16,7 +16,8 @@ Missing documents for a script?  Check the file contents for more details.
 #### parse_ms_response_times.awk
 - With `debug_ms=1` set, pass the resulting log file to the script
 - The script will output a CSV format detailing each message
-** Notes: **
+
+##### Notes:
 - This parser is targeted at OSD bound messages and replies.
 - It may kinda work on messages to other Ceph services, but has not been tested.
 - Tested with output from Ceph 14.x.  Newer releases may have changed log formatting causing unexpected results.
@@ -34,12 +35,12 @@ start,end,duration,osd,pg,object
 ```
 
 ##### Column definitions:
-start: The start time when the message was sent
-end: The end time when the response was received
-duration: Duration between start and end in seconds
-osd: The OSD where the message was sent
-pg: The PG id for the object
-object: The object name of the op
+- start: The start time when the message was sent
+- end: The end time when the response was received
+- duration: Duration between start and end in seconds
+- osd: The OSD where the message was sent
+- pg: The PG id for the object
+- object: The object name of the op
 
 #### colo_lvm_osds.sh
 - This script creates LVM layout on a single disk for deploying with `ceph-volume lvm` feature.
