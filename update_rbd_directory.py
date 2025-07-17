@@ -87,18 +87,22 @@ to keys / values lists for later addition via 'addOmap()'.
 def loopRados(ioctx):
     for object in ioctx.list_objects():
         if object.key[:7]=="rbd_id.":
-            myrbd = rbd.Image(ioctx,name=object.key[7:])
-            fields={ "name": myrbd.get_name(), "id": myrbd.id() }
-            if args.force:
-                for myfield in antifield.keys():
-                   print("Forcing {} entry for {}".format(myfield,fields['name']))
-                   appendOmap(fields,myfield)
+            try:
+                myrbd = rbd.Image(ioctx,name=object.key[7:])
+            except:
+                print("There was an error connecting to rbd: {}".format(object.key[7:]))
             else:
-                with rados.ReadOpCtx() as read_op:
+                fields={ "name": myrbd.get_name(), "id": myrbd.id() }
+                if args.force:
                     for myfield in antifield.keys():
-                        iter, ret = ioctx.get_omap_vals_by_keys(read_op, tuple(["{}_{}".format(myfield,fields[myfield]),]))
-                        ioctx.operate_read_op(read_op,"rbd_directory")
-                        checkIter(iter,fields,myfield)
+                       print("Forcing {} entry for {}".format(myfield,fields['name']))
+                       appendOmap(fields,myfield)
+                else:
+                    with rados.ReadOpCtx() as read_op:
+                        for myfield in antifield.keys():
+                            iter, ret = ioctx.get_omap_vals_by_keys(read_op, tuple(["{}_{}".format(myfield,fields[myfield]),]))
+                            ioctx.operate_read_op(read_op,"rbd_directory")
+                            checkIter(iter,fields,myfield)
 
 """
 addOmap(ioctx)
