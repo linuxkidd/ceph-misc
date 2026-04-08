@@ -13,7 +13,6 @@ rados_err="${out_dir}/rados-${timestamp}.${$}.error"
 rgwadmin_out="${out_dir}/radosgw-admin-${timestamp}.${$}.intermediate"
 rgwadmin_err="${out_dir}/radosgw-admin-${timestamp}.${$}.error"
 gap_out="${out_dir}/gap-list-${timestamp}.${$}.gap"
-touch ${gap_out}
 
 #
 # field separator
@@ -38,13 +37,14 @@ checkReturn() {
     if [ ! -z "$3" ]; then
       error_addon="; Terminating"
     fi
-    log "ERROR: ${2} failed: returned ${1}${error_addon}"
+    >&2 echo $(date +%F\ %T) $(hostname -s) "ERROR: ${2} failed: returned ${1}${error_addon}"
     if [ ! -z "$3" ]; then
       >&2 echo
       >&2 echo '***'
       >&2 echo '*** WARNING: The results are incomplete. Do not use! ***'
       >&2 echo '***'
-      kill -s TERM $TOP_PID
+      kill $TOP_PID
+      exit $1
     fi
   fi
 }
@@ -146,6 +146,12 @@ EOF
   exit 1
 }
 
+which rados &> /dev/null
+checkReturn $? "rados command not found" 1
+
+which radosgw-admin &> /dev/null
+checkReturn $? "radosgw-admin command not found" 1
+
 error=0
 temp_prefix="/tmp"
 while getopts ":b:l:p:t:" o; do
@@ -223,6 +229,7 @@ fi
 
 log "Pool is \"$pool\"."
 log "Note: output files produced will be tagged with the current timestamp and PID -- ${timestamp}.${$}"
+touch ${gap_out}
 
 if [ -z "${bucket_name}" ]; then
   process_bucket_list
