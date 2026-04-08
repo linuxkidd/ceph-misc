@@ -13,6 +13,45 @@ Missing documents for a script?  Check the file contents for more details.
 
 ## Tool Explanations:
 
+#### rgw-gap-list-by-bucket
+An alternative to the upstream `rgw-gap-list` tool which provides the option
+of processing individual buckets, or a list of buckets, instead of the entire
+RGW bucket space.  Uses `rados stat` command to verify RADOS object existence
+and thus does not generate a full `rados list`, cutting down time to
+verification results for the smaller operating bucket set.
+
+```
+Usage: ./rgw-gap-list-by-bucket [-l bucket_list.txt] [-p <pool>] [-t <temp_dir>]
+
+Where:
+  -b               Optionally, provide a single bucket name for processing
+                   NOTE: This option causes the '-l' option to be ignored.
+
+  -l               Optionally, provide a text file with bucket names, one
+                   per line for processing.  Without this option, the 
+                   script will get a bucket list and operate over the full
+                   list.
+                   NOTE: This option is ignored if '-b' option is provided.
+
+  -p <pool>        The RGW bucket data pool name, if omitted, pool name
+                   will be prompted for during execution.
+                   Multiple pools can be supplied as a space separated
+                   double quoted list.
+
+  -t <temp_dir>    Optionally, set the directory to use for temp space.
+                   This may be required if /tmp is low on space.
+
+NOTE: False positives are possible. False positives would likely
+      appear as in-progress multi-part uploads that later completed.
+      All results should therefore be verified.
+```
+
+**Note:** While this tool can be used to process all buckets, it will be
+slower to complete the full task due to its nature of operation.  However,
+it will generate incremental output which could be used for verification
+over the course of the operation, vs only outputing the results after a
+(potentially lengthy) `rados list` operation completes.
+
 #### parse_ms_response_times.awk
 - With `debug_ms=1` set, pass the resulting log file to the script
 - The script will output a CSV format detailing each message
