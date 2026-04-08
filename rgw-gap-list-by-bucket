@@ -76,8 +76,8 @@ process_bucket() {
   for olinenum in $(seq 1 $line_count); do
     line=$(head -n $olinenum $rgwadmin_temp | tail -n 1)
     robj=$(echo $line | awk -F "$fs" '{print $1}')
-		b=$(echo $line | awk -F "$fs" '{print $2}')
-		uo=$(echo $line | awk -F "$fs" '{print $3}')
+    b=$(echo $line | awk -F "$fs" '{print $2}')
+    uo=$(echo $line | awk -F "$fs" '{print $3}')
     local objpresent=0
     for p in $pool; do
       rados -p $p stat "${robj}" > /dev/null 2>> $rados_err
@@ -160,7 +160,7 @@ while getopts ":b:l:p:t:" o; do
         echo
         echo "ERROR: Provided bucket list file does not exist or is empty: ${OPTARG}"
         usage
-	error=1
+        error=1
       fi
     ;;
     p)
@@ -173,7 +173,7 @@ while getopts ":b:l:p:t:" o; do
         echo
         echo "ERROR: Temporary directory does not exist: ${OPTARG}"
         usage
-	error=1
+        error=1
       fi
     ;;
     *)
