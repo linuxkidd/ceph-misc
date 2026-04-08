@@ -1,0 +1,249 @@
+#!/usr/bin/bash
+#
+# Last Revision: 2026-04-02
+#
+
+trap "exit 1" TERM
+TOP_PID=$$
+
+out_dir="$PWD"
+timestamp=$(date -u +%Y%m%d%H%M)
+rados_out="${out_dir}/rados-${timestamp}.${$}.intermediate"
+rados_err="${out_dir}/rados-${timestamp}.${$}.error"
+rgwadmin_out="${out_dir}/radosgw-admin-${timestamp}.${$}.intermediate"
+rgwadmin_err="${out_dir}/radosgw-admin-${timestamp}.${$}.error"
+gap_out="${out_dir}/gap-list-${timestamp}.${$}.gap"
+touch ${gap_out}
+
+#
+# field separator
+# contains ascii 0xFE, designed to be a character that won't appear
+# in normal output, can only be a single character
+#
+fs=$(echo -e "\xFE")
+
+log() {
+  echo $(date +%F\ %T) $(hostname -s) "$1"
+}
+
+#
+# checkReturn RETURNCODE MESSAGE TERMINATE
+#  RETURNCODE - ( usually $? ) of previous command
+#  MESSAGE    - Message to print on non-zero return code
+#  TERMINATE  - non-empty == terminate the script on non-zero return code
+#
+checkReturn() {
+  if [ $1 -ne 0 ]; then
+    error_addon=""
+    if [ ! -z "$3" ]; then
+      error_addon="; Terminating"
+    fi
+    log "ERROR: ${2} failed: returned ${1}${error_addon}"
+    if [ ! -z "$3" ]; then
+      >&2 echo
+      >&2 echo '***'
+      >&2 echo '*** WARNING: The results are incomplete. Do not use! ***'
+      >&2 echo '***'
+      kill -s TERM $TOP_PID
+    fi
+  fi
+}
+
+prompt_pool() {
+  # note: all prompts go to stderr so stdout contains just the result
+  rados lspools >"$temp_file" 2>"$rados_err"
+  checkReturn $? "Listing pools" 1
+
+  >&2 echo ""
+  >&2 echo "Available pools:"
+  >&2 sed 's/^/    /' "$temp_file" # list pools and indent
+  >&2 echo ""
+  >&2 echo "Which Rados Gateway Data pool do you want to search for gaps? "
+  >&2 echo ""
+  >&2 echo "NOTE: If your installation has multiple bucket data pools using "
+  >&2 echo "      bucket placement policies, please enter a space separated "
+  >&2 echo "      list of bucket data pools to enumerate."
+  >&2 echo ""
+  local mypool
+  read mypool
+  echo $mypool
+}
+
+process_bucket() {
+  radosgw-admin bucket radoslist --bucket="$1" --rgw-obj-fs="$fs" > ${rgwadmin_temp} 2>> $rgwadmin_err
+  line_count=$(wc -l < "${rgwadmin_temp}")
+  log "Processing ${line_count} bucket lines for $1"
+  for olinenum in $(seq 1 $line_count); do
+    line=$(head -n $olinenum $rgwadmin_temp | tail -n 1)
+    robj=$(echo $line | awk -F "$fs" '{print $1}')
+		b=$(echo $line | awk -F "$fs" '{print $2}')
+		uo=$(echo $line | awk -F "$fs" '{print $3}')
+    local objpresent=0
+    for p in $pool; do
+      rados -p $p stat "${robj}" > /dev/null 2>> $rados_err
+      RETVAL=$?
+      if [ $RETVAL -eq 0 ]; then
+        objpresent=1
+      fi
+    done
+    if [ $objpresent -eq 0 ]; then
+      echo "${b}/${uo} MISSING ${robj}" >> $gap_out
+    fi
+  done
+}
+
+list_buckets() {
+  log "Generating bucket list..."
+  radosgw-admin bucket list | jq -cr ".[]" > ${bucket_list_file} 2>> ${rgwadmin_err}
+  checkReturn $? "Listing buckets" 1
+}
+
+process_bucket_list() {
+  if [ -z "$bucket_list_file" ]; then
+    bucket_list_file="${rgwadmin_out}_list"
+    list_buckets
+  fi
+  if [ ! -s "${bucket_list_file}" ]; then
+    echo "ERROR: Bucket list output is empty.  Exiting."
+    exit 1
+  fi
+  bucket_count=$(wc -l < "${bucket_list_file}")
+  log "Processing ${bucket_count} buckets"
+  for blinenum in $(seq 1 $bucket_count); do
+    bucket_name=$(head -n $blinenum "${bucket_list_file}" | tail -n 1)
+    process_bucket "${bucket_name}"
+  done
+
+}
+usage() {
+  >&2 cat << EOF
+
+Usage: $0 [-l bucket_list.txt] [-p <pool>] [-t <temp_dir>]
+
+Where:
+  -b               Optionally, provide a single bucket name for processing
+                   NOTE: This option causes the '-l' option to be ignored.
+
+  -l               Optionally, provide a text file with bucket names, one
+                   per line for processing.  Without this option, the 
+                   script will get a bucket list and operate over the full
+                   list.
+                   NOTE: This option is ignored if '-b' option is provided.
+
+  -p <pool>        The RGW bucket data pool name, if omitted, pool name
+                   will be prompted for during execution.
+                   Multiple pools can be supplied as a space separated
+                   double quoted list.
+
+  -t <temp_dir>    Optionally, set the directory to use for temp space.
+                   This may be required if /tmp is low on space.
+
+NOTE: False positives are possible. False positives would likely
+      appear as in-progress multi-part uploads that later completed.
+      All results should therefore be verified.
+
+EOF
+  exit 1
+}
+
+error=0
+temp_prefix="/tmp"
+while getopts ":b:l:p:t:" o; do
+  case "${o}" in
+    b)
+      bucket_name="${OPTARG}"
+    ;;
+    l)
+      if [ -s ${OPTARG} ]; then
+        bucket_list_file="${OPTARG}"
+      else
+        echo
+        echo "ERROR: Provided bucket list file does not exist or is empty: ${OPTARG}"
+        usage
+	error=1
+      fi
+    ;;
+    p)
+      pool="${OPTARG}"
+    ;;
+    t)
+      if [ -d "${OPTARG}" ]; then
+        temp_prefix="${OPTARG}"
+      else
+        echo
+        echo "ERROR: Temporary directory does not exist: ${OPTARG}"
+        usage
+	error=1
+      fi
+    ;;
+    *)
+      echo
+      echo "ERROR: Unrecognized argument: ${o}"
+      usage
+      error=1
+    ;;
+  esac
+  if [ $error -ne 0 ]; then
+    exit $error
+  fi
+done
+shift $((OPTIND-1))
+
+temp_file=${temp_prefix}/gap-tmp.$$
+rados_temp=${temp_prefix}/rados-tmp.$$
+rgwadmin_temp=${temp_prefix}/radosgw-admin-tmp.$$
+rados_flag=${temp_prefix}/rados-flag.$$
+rgwadmin_flag=${temp_prefix}/radosgw-admin-flag.$$
+incremental_grep_awk="${temp_prefix}/ig-${$}.awk"
+
+if [ $error -gt 0 ]; then
+  usage
+fi
+
+if [ -z "$pool" ]; then
+  pool="$(prompt_pool)"
+fi
+
+error=0
+rados ${CEPH_ARGS} lspools > ${temp_file}
+checkReturn $? "rados lspools" 1
+for mypool in $pool; do
+  if [ $(grep -c "^${mypool}$" "${temp_file}") -eq 0 ]; then
+      echo
+      echo "ERROR: Supplied pool does not exist: ${mypool}"
+      echo
+      usage
+      error=1
+  fi
+done
+
+if [ $error -gt 0 ]; then
+  exit 1
+fi
+
+log "Pool is \"$pool\"."
+log "Note: output files produced will be tagged with the current timestamp and PID -- ${timestamp}.${$}"
+
+if [ -z "${bucket_name}" ]; then
+  process_bucket_list
+else
+  process_bucket "${bucket_name}"
+fi
+
+found=$(wc -l < "$gap_out")
+mydate=$(date +%F\ %T)
+
+log "Done."
+
+cat << EOF
+
+Found ${found} *possible* gaps.
+The results can be found in "${gap_out}".
+
+***
+*** WARNING: This is EXPERIMENTAL code and the results should be
+***          VERIFIED. Not everything listed is an actual gap. 
+***          EXPECT false positives. Every result produced should 
+***          be verified.
+***
+EOF
