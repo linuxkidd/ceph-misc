@@ -22,7 +22,7 @@ and thus does not generate a full `rados list`, cutting down time to
 verification results for the smaller operating bucket set.
 
 ```
-Usage: ./rgw-gap-list-by-bucket [-l bucket_list.txt] [-p <pool>] [-t <temp_dir>]
+Usage: ./rgw-gap-list-by-bucket [-b <bucket_name>] [-l <bucket_list.txt>] [-p <pool>] [-t <temp_dir>]
 
 Where:
   -b               Optionally, provide a single bucket name for processing
