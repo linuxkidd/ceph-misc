@@ -2,6 +2,7 @@
 Miscellaneous scripts I created for various tasks with Ceph.
 
 ## Table of Contents:
+- [rgw-gap-list-by-bucket](#rgw-gap-list-by-bucket)
 - [parse_ms_response_times.awk](#parse_ms_response_timesawk)
 - [colo_lvm_osds.sh](#colo_lvm_osdssh)
 - [dedicated_lvm_osds.sh](#dedicated_lvm_osdssh)
