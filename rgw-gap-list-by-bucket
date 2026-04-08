@@ -118,7 +118,7 @@ process_bucket_list() {
 usage() {
   >&2 cat << EOF
 
-Usage: $0 [-l bucket_list.txt] [-p <pool>] [-t <temp_dir>]
+Usage: $0 [-b <bucket_name>] [-l bucket_list.txt] [-p <pool>] [-t <temp_dir>]
 
 Where:
   -b               Optionally, provide a single bucket name for processing
