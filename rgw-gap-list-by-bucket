@@ -146,15 +146,6 @@ EOF
   exit 1
 }
 
-which rados &> /dev/null
-checkReturn $? "rados command not found" 1
-
-which radosgw-admin &> /dev/null
-checkReturn $? "radosgw-admin command not found" 1
-
-which jq &> /dev/null
-checkReturn $? "jq command not found" 1
-
 error=0
 temp_prefix="/tmp"
 while getopts ":b:l:p:t:" o; do
@@ -197,6 +188,16 @@ while getopts ":b:l:p:t:" o; do
   fi
 done
 shift $((OPTIND-1))
+
+which rados &> /dev/null
+checkReturn $? "rados command not found" 1
+
+which radosgw-admin &> /dev/null
+checkReturn $? "radosgw-admin command not found" 1
+
+which jq &> /dev/null
+checkReturn $? "jq command not found" 1
+
 
 temp_file=${temp_prefix}/gap-tmp.$$
 rados_temp=${temp_prefix}/rados-tmp.$$
