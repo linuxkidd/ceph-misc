@@ -82,7 +82,8 @@ bucket_count = 0
 bucket_count_idx = 0
 missing_count = 0
 shard_count = 1
-sync_object_name="rgw-gap-list-sync-object"
+sync_object_name = "rgw-gap-list-sync-object"
+report_every_x_object_count = 10000
 
 def signal_handler(sig, frame):
     print(f'Received {sig}, Terminating')
@@ -460,7 +461,7 @@ def process_bucket(bucket_name):
     for brl_line in io.TextIOWrapper(brl.stdout, encoding="utf-8"):
         object_data = brl_line.strip().split(fs)
         linecount+=1
-        if linecount % 10000 == 0:
+        if linecount % report_every_x_object_count == 0:
             nowtime = round(time.time(),3)
             deltaStart = nowtime - starttime
             deltaLast  = nowtime - laststatus
