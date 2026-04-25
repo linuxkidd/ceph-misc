@@ -196,7 +196,7 @@ class CephClusterConnection:
                 logger.info(f"Deleting sync object: {sync_object_name}.{i}")
                 self.sync_ioctl.remove_object(f"{sync_object_name}.{i}")
 
-        logger.critical(f"Finished deleting sync objects.  Exiting.")
+        logger.critical(f"Finished deleting sync objects.")
 
     def populate_sync_objects(self,shard_count=1):
         logger.info(f"Populating sync objects...")
