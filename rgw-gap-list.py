@@ -175,8 +175,11 @@ class CephClusterConnection:
 
     def delete_sync_objects(self):
         logger.critical(f"Deleting sync objects...")
+        shard_count = 1
         try:
             self.sync_ioctl.stat(sync_object_name)
+            bucket_metadata_header = json.loads(self.sync_ioctl.read(sync_object_name).decode("ascii"))
+            shard_count = bucket_metadata_header["shard_count"]
             logger.info(f"Deleting primary sync object: {sync_object_name}")
             self.sync_ioctl.remove_object(sync_object_name)
         except rados.ObjectNotFound:
