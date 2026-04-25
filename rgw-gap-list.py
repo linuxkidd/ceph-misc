@@ -200,10 +200,10 @@ class CephClusterConnection:
         logger.critical(f"Finished deleting sync objects.")
 
     def populate_sync_objects(self,shard_count=1):
-        logger.info(f"Populating sync objects...")
         try:
             self.sync_ioctl.stat(sync_object_name)
         except rados.ObjectNotFound:
+            logger.info(f"Populating sync objects...")
             logger.debug(f"Creating primary sync object: {sync_object_name}")
             sync_data = { "bucket_count": bucket_count, "shard_count": shard_count, "epoch": round(time.time(),3) }
             self.sync_ioctl.write_full(sync_object_name,json.dumps(sync_data).encode("utf-8"))
