@@ -178,22 +178,25 @@ class CephClusterConnection:
         shard_count = 1
         try:
             self.sync_ioctl.stat(sync_object_name)
+        except rados.ObjectNotFound:
+            pass
+        else:
             bucket_metadata_header = json.loads(self.sync_ioctl.read(sync_object_name).decode("ascii"))
             shard_count = bucket_metadata_header["shard_count"]
             logger.info(f"Deleting primary sync object: {sync_object_name}")
             self.sync_ioctl.remove_object(sync_object_name)
-        except rados.ObjectNotFound:
-            pass
+
 
         for i in range(shard_count):
             try:
                 self.sync_ioctl.stat(f"{sync_object_name}.{i}")
-                logger.info(f"Deleting sync object: {sync_object_name}.{i}")
-                self.sync_ioctl.remove_object(f"{sync_object_name}.{i}")
             except rados.ObjectNotFound:
                 pass
+            else:
+                logger.info(f"Deleting sync object: {sync_object_name}.{i}")
+                self.sync_ioctl.remove_object(f"{sync_object_name}.{i}")
+
         logger.critical(f"Finished deleting sync objects.  Exiting.")
-        exit(0)
 
     def populate_sync_objects(self,shard_count=1):
         logger.info(f"Populating sync objects...")
@@ -211,9 +214,10 @@ class CephClusterConnection:
             if len(running_hosts):
                 shard_count = bucket_metadata_header["shard_count"]
             else:
-                logger.info("Resetting primary sync object data due to no active hosts.")
-                sync_data = { "bucket_count": bucket_count, "shard_count": shard_count, "epoch": round(time.time(),3) }
-                self.sync_ioctl.write_full(sync_object_name,json.dumps(sync_data).encode("utf-8"))
+                logger.info("No running hosts, resetting sync objects.")
+                self.delete_sync_objects()
+                self.populate_sync_objects(shard_count)
+                return None
 
         for i in range(shard_count):
             try:
@@ -222,6 +226,7 @@ class CephClusterConnection:
             except rados.ObjectNotFound:
                 logger.debug(f"Creating sync object: {sync_object_name}.{i}")
                 self.sync_ioctl.write_full(f"{sync_object_name}.{i}",b'')
+
         logger.info("Finished populating sync objects...")
 
     def hash_bucketname(self,bucketname):
