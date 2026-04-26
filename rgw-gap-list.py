@@ -577,7 +577,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(
         level=log_levels[debug_level],
-        format=f'%(asctime)s {myhost} %(levelname)s - %(message)s',
+        format=f'%(asctime)s {myhost}.{mypid} %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler()
         ]
@@ -602,4 +602,9 @@ if __name__ == "__main__":
                 logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}.")
             else:
                 process_list()
-                logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}")
+                if missing_count:
+                    logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}")
+
+    if missing_count == 0:
+        logger.info(f"There were mo missing rados objects. Removing results file {args.outfile}")
+        os.remove(args.outfile)
