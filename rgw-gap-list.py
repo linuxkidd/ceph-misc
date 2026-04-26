@@ -161,7 +161,8 @@ class CephClusterConnection:
         for ioctx in self.pool_ioctl:
             try:
                 size, mtime = ioctx.stat(object_name)
-                logger.debug(f"[FOUND] Found object named {object_name}")
+                dt = datetime.fromtimestamp(time.mktime(mtime))
+                logger.debug(f"[FOUND] Found object named {object_name}: Size: {size}, mtime: {dt}")
                 return True
 
             except rados.ObjectNotFound:
