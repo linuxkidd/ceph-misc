@@ -66,7 +66,6 @@ import json
 import logging
 import os
 import rados
-import select
 import signal
 import subprocess
 import sys
@@ -551,9 +550,10 @@ def process_list():
 
     bl = subprocess.Popen(bucket_list_command, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     jql = subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    sortl = subprocess.Popen(["sort","--random-sort"],stdin=jql.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-    for jql_line in io.TextIOWrapper(jql.stdout, encoding="utf-8"):
-        bucket = jql_line.strip()
+    for sortl_line in io.TextIOWrapper(sortl.stdout, encoding="utf-8"):
+        bucket = sortl_line.strip()
         process_bucket(bucket)
 
     return None
@@ -579,12 +579,16 @@ if __name__ == "__main__":
         level=log_levels[debug_level],
         format=f'%(asctime)s {myhost} %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(f"rgw-gap-list.{mypid}.log"),
             logging.StreamHandler()
         ]
     )
 
     logger = logging.getLogger('rgw-gap-list')
+
+    if args.report:
+        with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
+            ceph.generate_report()
+            exit()
 
     if args.outfile == f'gap-list-results.{mypid}' and args.verify:
         args.outfile = f'gap-list-verify-results.{mypid}'
@@ -593,8 +597,6 @@ if __name__ == "__main__":
         with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
             if args.delete:
                 ceph.delete_sync_objects()
-            elif args.report:
-                ceph.generate_report()
             elif args.verify:
                 verify_results()
                 logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}.")
