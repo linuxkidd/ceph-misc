@@ -598,9 +598,11 @@ if __name__ == "__main__":
         with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
             if args.delete:
                 ceph.delete_sync_objects()
+                exit()
             elif args.verify:
                 verify_results()
-                logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}.")
+                if missing_count:
+                    logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}.")
             else:
                 process_list()
                 if missing_count:
