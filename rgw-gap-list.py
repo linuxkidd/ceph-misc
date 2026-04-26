@@ -439,14 +439,12 @@ def process_bucket(bucket_name):
     bucket_meta = ceph.get_bucket_meta(bucket_name)
     if bucket_meta:
         bucket_meta = json.loads(bucket_meta)
+        dt = datetime.fromtimestamp(bucket_meta["end_time"]).strftime('%Y-%m-%d %H:%M:%S')
+        hum = seconds_to_human(args.maxage)
         if time.time() - bucket_meta["end_time"] > int(args.maxage):
-            dt = datetime.fromtimestamp(bucket_meta["end_time"]).strftime('%Y-%m-%d %H:%M:%S')
-            hum = seconds_to_human(args.maxage)
             logger.info(f"Bucket {bucket_name} end time ( {dt} ) is more than {hum} old.  Processing again.")
         else:
-            dt = datetime.fromtimestamp(bucket_meta["start_time"]).strftime('%Y-%m-%d %H:%M:%S')
-            hum = seconds_to_human(args.maxage)
-            logger.info(f"Bucket {bucket_name} start time ( {dt} ) is less than {hum} old.  Skipping.")
+            logger.info(f"Bucket {bucket_name} end time ( {dt} ) is less than {hum} old.  Skipping.")
             return None
 
     logger.info(f"Processing {bucket_name}")
