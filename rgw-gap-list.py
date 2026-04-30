@@ -2,8 +2,8 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-04-24
-Version: 0.9
+Last Revision: 2026-04-30
+Version: 1.0
 
 Performs a Rados Gateway Gap analysis
 (wat?)
@@ -37,7 +37,7 @@ This python version attempts to address these shortcoming in the following way:
 
 Usage can be had by passing '--help' to the script.
 
-Tips:
+## Tips:
 - I recommend using '-vv' the first time ( or any time ) to see what is going
   on.
 - Get a report of current host activity and bucket scan states by passing '-r'
@@ -54,6 +54,14 @@ Tips:
 - To verify the results of multiple script runs ( whether parallel on a single
   host, or across multiple hosts) by catting all their results into a single
   file, then providing that combined file with the '-x' parameter.
+
+## Known Issues:
+- If two separate instances attempt to start processing the same bucket in
+  a very narrow window ( < 50ms, but the exact value depends on a lot of
+  variables ), they may both succeed in starting the process, instead of one
+  winning the race to push the sync object omap update and blocking the other.
+  This has no real impact aside from doubling any gap objects listed in the 
+  results and having two threads processing the same bucket.
 
 Enjoy!
 """
@@ -430,11 +438,13 @@ def process_bucket(bucket_name):
     global bucket_count_idx
     global missing_count
     bucket_count_idx+=1
-    logger.info(f"Checking {bucket_name} via sync state")
-    is_scanning = ceph.is_bucket_scanning(bucket_name)
-    if is_scanning:
-        logger.info(f"Bucket {bucket_name} is actively being scanned on {is_scanning['hostname']} ({is_scanning['pid']})")
-        return None
+
+    if bucket_count:
+        logger.info(f"Checking {bucket_name} via sync state")
+        is_scanning = ceph.is_bucket_scanning(bucket_name)
+        if is_scanning:
+            logger.info(f"Bucket {bucket_name} is actively being scanned on {is_scanning['hostname']} ({is_scanning['pid']})")
+            return None
 
     bucket_meta = ceph.get_bucket_meta(bucket_name)
     if bucket_meta:
@@ -589,7 +599,7 @@ if __name__ == "__main__":
             ceph.generate_report()
             exit()
 
-    if args.outfile == f'gap-list-results.{mypid}' and args.verify:
+    if args.verify and args.outfile == f'gap-list-results.{mypid}':
         args.outfile = f'gap-list-verify-results.{mypid}'
 
     with open(args.outfile,"w") as outfile:
@@ -599,13 +609,11 @@ if __name__ == "__main__":
                 exit()
             elif args.verify:
                 verify_results()
-                if missing_count:
-                    logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}.")
             else:
                 process_list()
-                if missing_count:
-                    logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}")
 
-    if missing_count == 0:
+    if missing_count:
+        logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}")
+    else:
         logger.info(f"There were mo missing rados objects. Removing results file {args.outfile}")
         os.remove(args.outfile)
