@@ -618,16 +618,17 @@ if __name__ == "__main__":
         with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
             ceph.generate_report()
             exit()
+    elif args.delete:
+        with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
+            ceph.delete_sync_objects()
+            exit()
 
     if args.verify and args.outfile == f'gap-list-results.{mypid}':
         args.outfile = f'gap-list-verify-results.{mypid}'
 
     with open(args.outfile,"w") as outfile:
         with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
-            if args.delete:
-                ceph.delete_sync_objects()
-                exit()
-            elif args.verify:
+            if args.verify:
                 verify_results()
             else:
                 process_list()
