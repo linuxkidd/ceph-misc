@@ -570,8 +570,8 @@ def process_list():
                 NOT remove any other characters in between.
                 """
                 bucket = re.sub(r'^"','',bl_line)
-                bucket = re.sub(r',$','',bl_line)
-                bucket = re.sub(r'"$','',bl_line)
+                bucket = re.sub(r',$','',bucket)
+                bucket = re.sub(r'"$','',bucket)
 
                 process_bucket(bucket)
 
