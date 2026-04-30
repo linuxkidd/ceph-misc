@@ -73,6 +73,7 @@ import io
 import json
 import logging
 import os
+import re
 import rados
 import signal
 import subprocess
@@ -557,13 +558,31 @@ def process_list():
     shard_count = int(bucket_count/400) + 1
     ceph.populate_sync_objects(shard_count)
 
-    bl = subprocess.Popen(bucket_list_command, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    jql = subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    sortl = subprocess.Popen(["sort","--random-sort"],stdin=jql.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if args.norandom: # Do not randomize the bucket list, optional.
+        bl = subprocess.Popen(bucket_list_command, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-    for sortl_line in io.TextIOWrapper(sortl.stdout, encoding="utf-8"):
-        bucket = sortl_line.strip()
-        process_bucket(bucket)
+        for bl_line in io.TextIOWrapper(bl.stdout, encoding="utf-8"):
+            bl_line = bl_line.strip()
+            if re.match(r'^"',bl_line):
+                """
+                The raw output of bucket list is a json array.  We need to only process lines that start with
+                double quotes, and then we need to remove the double quotes and ending comma (if present), but
+                NOT remove any other characters in between.
+                """
+                bucket = re.sub(r'^"','',bl_line)
+                bucket = re.sub(r',$','',bl_line)
+                bucket = re.sub(r'"$','',bl_line)
+
+                process_bucket(bucket)
+
+    else: # Randomize the bucket list, this is the default.
+        bl = subprocess.Popen(bucket_list_command, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        jql = subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        sortl = subprocess.Popen(["sort","--random-sort"],stdin=jql.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+        for sortl_line in io.TextIOWrapper(sortl.stdout, encoding="utf-8"):
+            bucket = sortl_line.strip()
+            process_bucket(bucket)
 
     return None
 
@@ -574,6 +593,7 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--conf", default = '/etc/ceph/ceph.conf', help="Ceph conf file to use, default '/etc/ceph/ceph.conf'")
     parser.add_argument("-d", "--delete",  default = False, action="store_true", help="Remove all sync objects and Exit. Used to clear all syncronized bucket status data.")
     parser.add_argument("-l", "--listfile", default = '', help="Optional: Bucket list file, should be one bucket name per line.")
+    parser.add_argument("-n", "--norandom", default = False, action="store_true", help="By default, the script randomizes the list of buckets before processing.  On large bucket count environments, this may cause significant delay before start of processing due to the way the randomizing occurs.  Set '-n' to Not Randomize the list to remove this delay.")
     parser.add_argument("-o", "--outfile", default = f'gap-list-results.{mypid}', help="Optional: results file name, default: gap-list-results.###")
     parser.add_argument("-p", "--pool", default = 'default.rgw.buckets.data', help="Bucket Data Pool(s), default 'default.rgw.buckets.data', quoted space separated list is supported.")
     parser.add_argument("-s", "--syncpool", default = 'default.rgw.buckets.index', help="Synchronization / Queuing pool for the script ot use, default 'default.rgw.buckets.index'.")
