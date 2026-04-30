@@ -490,7 +490,6 @@ def process_bucket(bucket_name):
     return None
 
 def verify_results():
-    import re
     if not os.path.exists(args.verify):
         logger.critical(f"[CRITICAL] Previous results file {args.verify} not present.")
         return None
