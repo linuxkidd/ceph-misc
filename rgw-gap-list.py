@@ -221,10 +221,10 @@ class CephClusterConnection:
             logger.debug(f"Found primary sync object: {sync_object_name}")
             bucket_metadata_header = json.loads(self.sync_ioctl.read(sync_object_name).decode("ascii"))
             running_hosts = self.get_running_hosts()
-            if len(running_hosts):
+            if shard_count > ( bucket_metadata_header["shard_count"] * 1.5 ) or running_hosts:
                 shard_count = bucket_metadata_header["shard_count"]
             else:
-                logger.info("No running hosts, resetting sync objects.")
+                logger.info("No running hosts, and shard count is too low, resetting sync objects.")
                 self.delete_sync_objects()
                 self.populate_sync_objects(shard_count)
                 return None
