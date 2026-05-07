@@ -2,8 +2,8 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-04-30
-Version: 1.0
+Last Revision: 2026-05-07
+Version: 1.1
 
 Performs a Rados Gateway Gap analysis
 (wat?)
@@ -244,9 +244,9 @@ class CephClusterConnection:
         digest = hashlib.sha256(bucketname.encode("utf-8")).digest()
         return int.from_bytes(digest,byteorder="big") % shard_count
 
-    def touch_sync_state(self, bucket_name='', rados_count=0 ):
+    def touch_sync_state(self, bucket_name='', rados_count=0, gap_count=0):
         with rados.WriteOpCtx() as write_op:
-            sync_state = { "epoch": round(time.time(),3), "current_bucket": bucket_name, "rados_count": rados_count, "bucket_counter": bucket_count_idx, "total_buckets": bucket_count }
+            sync_state = { "epoch": round(time.time(),3), "current_bucket": bucket_name, "rados_count": rados_count, "gap_count": gap_count, "bucket_counter": bucket_count_idx, "total_buckets": bucket_count }
             self.sync_ioctl.set_omap(write_op,(f"{myhost}.{mypid}",),( json.dumps(sync_state), ))
             self.sync_ioctl.operate_write_op(write_op, sync_object_name)
 
@@ -261,12 +261,12 @@ class CephClusterConnection:
     def start_bucket(self,bucket_name):
         shardid = self.hash_bucketname(bucket_name)
         logger.debug(f"Setting bucket start metadata to sync shard {shardid}")
-        sync_metadata = { "hostname": myhost, "pid": mypid, "rados_obj_count": 0, "start_time": round(time.time(),3), "end_time": 0 }
+        sync_metadata = { "hostname": myhost, "pid": mypid, "rados_obj_count": 0, "gap_count": 0, "start_time": round(time.time(),3), "end_time": 0 }
         with rados.WriteOpCtx() as write_op:
             # Set bucket metadata
             self.sync_ioctl.set_omap(write_op,(bucket_name,),( json.dumps(sync_metadata), ))
             self.sync_ioctl.operate_write_op(write_op, f"{sync_object_name}.{shardid}")
-        self.touch_sync_state(bucket_name,0)
+        self.touch_sync_state(bucket_name,0,0)
         return True
 
     def get_bucket_meta(self,bucket_name):
@@ -288,13 +288,14 @@ class CephClusterConnection:
                 logger.debug(f"Bucket metadata not present.")
                 return False
 
-    def end_bucket(self,bucket_name,rados_count):
+    def end_bucket(self,bucket_name,rados_count,gap_count):
         shardid = self.hash_bucketname(bucket_name)
         logger.info(f"Setting bucket end metadata to sync shard {shardid}")
         bucket_meta = self.get_bucket_meta(bucket_name)
         if bucket_meta:
             bucket_meta = json.loads(bucket_meta)
             bucket_meta["end_time"] = round(time.time(),3)
+            bucket_meta["gap_count"] = gap_count
             bucket_meta["rados_obj_count"] = rados_count
             bucket_meta["total_time_secs"] = round(bucket_meta["end_time"] - bucket_meta["start_time"],3)
             logger.debug(f"Bucket meta: {bucket_meta}")
@@ -302,7 +303,7 @@ class CephClusterConnection:
                 # Set bucket metadata
                 self.sync_ioctl.set_omap(write_op,(bucket_name,),( json.dumps(bucket_meta), ))
                 self.sync_ioctl.operate_write_op(write_op, f"{sync_object_name}.{shardid}")
-            self.touch_sync_state(bucket_name,rados_count)
+            self.touch_sync_state(bucket_name,rados_count,gap_count)
             return True
         else:
             logger.error(f"Bucket start metadata is missing from shard {shardid}")
@@ -376,7 +377,7 @@ class CephClusterConnection:
             logger.critical("No primary sync object found.  Exiting")
             exit(1)
         else:
-            ceph.touch_sync_state(bucket_name='', rados_count=0)
+        #    ceph.touch_sync_state(bucket_name='', rados_count=0, gap_count=0)
             logger.debug(f"Found primary sync object: {sync_object_name}")
             bucket_metadata_header = json.loads(self.sync_ioctl.read(sync_object_name).decode("ascii"))
             shard_count = bucket_metadata_header["shard_count"]
@@ -392,7 +393,7 @@ class CephClusterConnection:
                     print(f"  {host}")
                     for pid,status in data.items():
                         dt = datetime.fromtimestamp(status['epoch']).strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"    PID: {pid}, Bucket: {status['current_bucket']}, Rados Count: {status['rados_count']}, Bucket Counter: {status['bucket_counter']}, Last Updated: {dt}")
+                        print(f"    PID: {pid}, Bucket: {status['current_bucket']}, Rados Count: {status['rados_count']}, Gap Count: {status['gap_count']}, Bucket Counter: {status['bucket_counter']}, Last Updated: {dt}")
             else:
                 print("No active hosts.")
 
@@ -403,7 +404,7 @@ class CephClusterConnection:
                     if data['end_time']:
                         dt = datetime.fromtimestamp(data['end_time']).strftime('%Y-%m-%d %H:%M:%S')
                         hum = seconds_to_human(data['total_time_secs'])
-                        print(f"Last Scan Completed: {dt} in {hum}")
+                        print(f"Last Scan Completed: {dt} in {hum}, found {data['gap_count']} gaps.")
                     elif data['start_time']:
                         dt = datetime.fromtimestamp(data['start_time']).strftime('%Y-%m-%d %H:%M:%S')
                         state = "never completed, process not running"
@@ -440,6 +441,7 @@ def process_bucket(bucket_name):
     global bucket_count_idx
     global missing_count
     bucket_count_idx+=1
+    gap_count=0
 
     if bucket_count:
         logger.info(f"Checking {bucket_name} via sync state")
@@ -477,14 +479,15 @@ def process_bucket(bucket_name):
             deltaLast  = nowtime - laststatus
             laststatus = nowtime
             logger.info(f"[Status] Processed {linecount} rados objects in {deltaStart:.3f} seconds ( last 10k in {deltaLast:.3f} seconds ) for {bucket_name}.")
-            ceph.touch_sync_state(bucket_name=bucket_name, rados_count=linecount)
+            ceph.touch_sync_state(bucket_name=bucket_name, rados_count=linecount, gap_count=gap_count)
         if not ceph.stat_object(object_data[0]):
             missing_count+=1
+            gap_count+=1
             outfile.write(f"s3://{object_data[1]}/{object_data[2]} MISSING {object_data[0]}\n")
             logger.error(f"[NOT FOUND] Object not found: {object_data[0]} for s3://{object_data[1]}/{object_data[2]}")
 
     if bucket_count:
-        ceph.end_bucket(bucket_name,linecount)
+        ceph.end_bucket(bucket_name,linecount,gap_count)
     nowtime = round(time.time(),3)
     delta = nowtime - starttime
     logger.info(f"[Status] Processed {linecount} rados objects in {delta:.3f} seconds for {bucket_name}.")
