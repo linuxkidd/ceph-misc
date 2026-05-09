@@ -2,8 +2,10 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-05-07
-Version: 1.1
+Last Revision: 2026-05-08
+Version: 2.0
+
+Now using aio_stat()
 
 Performs a Rados Gateway Gap analysis
 (wat?)
@@ -19,18 +21,18 @@ drawbacks:
 - It's prone to false positives which can be tedious for mere mortals to
   verify.
 
--- This can take a LONG time on large clusters, and it doesn't generate any 
+-- This can take a LONG time on large clusters, and it doesn't generate any
    usable output until both lists are complete and the comparison begins.
 
 This python version attempts to address these shortcoming in the following way:
 1. It runs on a per-bucket basis and generates usable output for each bucket
    along the way.
 2. When ran without any bucket constraints ( either bucket list, or list file ),
-   this script maintains state synchronization using dedicated objects in the 
-   bucket index pool.
+   this script maintains state synchronization using dedicated objects in the
+   bucket index pool (by default).
 3. Since the state is synchronized via Ceph RADOS... multiple instances can be
    running in parallel, even across different hosts!
-4. This script can also be ran with the '-r' option to generate a report of 
+4. This script can also be ran with the '-r' option to generate a report of
    current running hosts, and state per bucket. ( add '-j' for json output )
 5. This script can verify its own results by passing the '-x' flag followed
    by the gap-list-result file from a previous run.
@@ -42,14 +44,14 @@ Usage can be had by passing '--help' to the script.
   on.
 - Get a report of current host activity and bucket scan states by passing '-r'
 - You can force a rescan by passing '-a #' with a value in seconds to consider
-  the prior scan stale ( after the # seconds value ) - use 1 to force rescan 
+  the prior scan stale ( after the # seconds value ) - use 1 to force rescan
   everything.
 - You can wipe out the synchronized state data by passing '-d'
 - Passing any bucket constraints ( -b or -l ) ignores the synchronized state!!
   -- NOTE -- Read the above line again.
-- The bucket data pool(s) and the sync state pool can be overridden with '-p' 
+- The bucket data pool(s) and the sync state pool can be overridden with '-p'
   and '-s', respectively.
-  -- NOTE -- If you don't use the same pools on all instances of this script, 
+  -- NOTE -- If you don't use the same pools on all instances of this script,
   the synchronized state will not work well ( or at all ).
 - To verify the results of multiple script runs ( whether parallel on a single
   host, or across multiple hosts) by catting all their results into a single
@@ -60,13 +62,14 @@ Usage can be had by passing '--help' to the script.
   a very narrow window ( < 50ms, but the exact value depends on a lot of
   variables ), they may both succeed in starting the process, instead of one
   winning the race to push the sync object omap update and blocking the other.
-  This has no real impact aside from doubling any gap objects listed in the 
+  This has no real impact aside from doubling any gap objects listed in the
   results and having two threads processing the same bucket.
 
 Enjoy!
 """
 
 import argparse
+from collections import deque
 from datetime import datetime
 import hashlib
 import io
@@ -102,7 +105,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 class CephClusterConnection:
     """
-    A context manager to handle connecting to and disconnecting from a 
+    A context manager to handle connecting to and disconnecting from a
     Ceph RADOS cluster, ensuring resources are cleaned up properly.
     """
     def __init__(self, ceph_conf='', pool_names=[], sync_pool=''):
@@ -112,6 +115,7 @@ class CephClusterConnection:
         self.pool_ioctl = []
         self.sync_pool = sync_pool
         self.sync_ioctl = None
+        self.in_flight = deque()
 
     def __enter__(self):
         """Called when entering the 'with' block."""
@@ -137,7 +141,7 @@ class CephClusterConnection:
             return self
         except rados.Error as e:
             logger.critical(f"Failed to connect to the Ceph cluster: {e}")
-            raise
+            raise RuntimeError(f"Failed to connect to the Ceph cluster: {e}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Called when exiting the 'with' block, ensuring safe shutdown."""
@@ -158,10 +162,7 @@ class CephClusterConnection:
                 pass
             logger.info("Connection to the Ceph cluster closed.")
 
-    def stat_object(self, object_name=""):
-        """
-        Retrieves the size and last modified time of an object.
-        """
+    def aio_stat_object(self, object_name=""):
         if not self.cluster:
             logger.critical("Cluster is not connected.")
             raise RuntimeError("Cluster is not connected.")
@@ -169,13 +170,7 @@ class CephClusterConnection:
         # iterate over each pool attempting to stat the object.
         for ioctx in self.pool_ioctl:
             try:
-                size, mtime = ioctx.stat(object_name)
-                dt = datetime.fromtimestamp(time.mktime(mtime))
-                logger.debug(f"[FOUND] Found object named {object_name}: Size: {size}, mtime: {dt}")
-                return True
-
-            except rados.ObjectNotFound:
-                continue
+                return ioctx.aio_stat(object_name,None)
 
             except Exception as e:
                 logger.error(f"[Exception] While attempting to stat {object_name}: {e}")
@@ -413,7 +408,7 @@ class CephClusterConnection:
                         print(f"Scan Started: {dt} ({state})")
             else:
                 print("  No bucket state available.")
-                
+
         exit(0)
 
 # End class CephClusterConnection
@@ -440,6 +435,7 @@ def process_bucket(bucket_name):
     global bucket_count
     global bucket_count_idx
     global missing_count
+    bucket_meta = None
     bucket_count_idx+=1
     gap_count=0
 
@@ -449,8 +445,8 @@ def process_bucket(bucket_name):
         if is_scanning:
             logger.info(f"Bucket {bucket_name} is actively being scanned on {is_scanning['hostname']} ({is_scanning['pid']})")
             return None
+        bucket_meta = ceph.get_bucket_meta(bucket_name)
 
-    bucket_meta = ceph.get_bucket_meta(bucket_name)
     if bucket_meta:
         bucket_meta = json.loads(bucket_meta)
         dt = datetime.fromtimestamp(bucket_meta["end_time"]).strftime('%Y-%m-%d %H:%M:%S')
@@ -465,35 +461,56 @@ def process_bucket(bucket_name):
     brl = subprocess.Popen(bucket_radoslist_command + [f"--bucket={bucket_name}"], bufsize=1048576, shell=False, \
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-    linecount=0
-    starttime=round(time.time(),3)
-    laststatus=round(time.time(),3)
+    line_count = 0
+    processed_count = 0
+    starttime = round(time.time(),3)
+    laststatus = round(time.time(),3)
     if bucket_count:
         ceph.start_bucket(bucket_name)
+
     for brl_line in io.TextIOWrapper(brl.stdout, encoding="utf-8"):
         object_data = brl_line.strip().split(fs)
-        linecount+=1
-        if linecount % report_every_x_object_count == 0:
+        line_count += 1
+        if line_count % report_every_x_object_count == 0:
             nowtime = round(time.time(),3)
             deltaStart = nowtime - starttime
             deltaLast  = nowtime - laststatus
             laststatus = nowtime
-            logger.info(f"[Status] Processed {linecount} rados objects in {deltaStart:.3f} seconds ( last 10k in {deltaLast:.3f} seconds ) for {bucket_name}.")
-            ceph.touch_sync_state(bucket_name=bucket_name, rados_count=linecount, gap_count=gap_count)
-        if not ceph.stat_object(object_data[0]):
+            logger.info(f"[Status] Submitted {line_count} rados objects in {deltaStart:.3f} seconds ( last 10k in {deltaLast:.3f} seconds ) for {bucket_name}.")
+            ceph.touch_sync_state(bucket_name=bucket_name, rados_count=line_count, gap_count=gap_count)
+
+        ceph.in_flight.append({"comp": ceph.aio_stat_object(object_data[0]), "objname": object_data[0], "bucket": f"s3://{object_data[1]}/{object_data[2]}"})
+
+        while len(ceph.in_flight) >= args.inflight:
+            processed_count += 1
+            oldest_op = ceph.in_flight.popleft()
+            oldest_op['comp'].wait_for_complete()
+            res = oldest_op['comp'].get_return_value()
+            if res == -2:
+                missing_count += 1
+                gap_count += 1
+                outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
+                logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSIN {oldest_op['objname']}")
+
+    while len(ceph.in_flight):
+        oldest_op = ceph.in_flight.popleft()
+        oldest_op['comp'].wait_for_complete()
+        res = oldest_op['comp'].get_return_value()
+        if res == -2:
             missing_count+=1
             gap_count+=1
-            outfile.write(f"s3://{object_data[1]}/{object_data[2]} MISSING {object_data[0]}\n")
-            logger.error(f"[NOT FOUND] Object not found: {object_data[0]} for s3://{object_data[1]}/{object_data[2]}")
+            outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
+            logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSIN {oldest_op['objname']}")
 
     if bucket_count:
-        ceph.end_bucket(bucket_name,linecount,gap_count)
+        ceph.end_bucket(bucket_name,line_count,gap_count)
     nowtime = round(time.time(),3)
     delta = nowtime - starttime
-    logger.info(f"[Status] Processed {linecount} rados objects in {delta:.3f} seconds for {bucket_name}.")
+    logger.info(f"[Status] Processed {line_count} rados objects in {delta:.3f} seconds for {bucket_name}.")
     return None
 
 def verify_results():
+    global missing_count
     if not os.path.exists(args.verify):
         logger.critical(f"[CRITICAL] Previous results file {args.verify} not present.")
         return None
@@ -506,25 +523,41 @@ def verify_results():
     wl_line = wl.stdout.readline().decode("ascii").strip()
     rados_count = wl_line.split(" ")[0]
     logger.info(f"Starting verify of {rados_count} rados object(s) from {args.verify}")
-    mcount=0
-    fcount=0
+    missing_count = 0
+    found_count = 0
     with open(args.verify) as vlist:
         for line in vlist:
             robj = re.sub(r'^.* MISSING ', '', line.strip())
-            if not ceph.stat_object(robj):
-                mcount+=1
+            ceph.in_flight.append({"comp": ceph.aio_stat_object(robj), "line": line.strip() })
+            while len(ceph.in_flight) >= args.inflight:
+                oldest_op = ceph.in_flight.popleft()
+                oldest_op['comp'].wait_for_complete()
+                res = oldest_op['comp'].get_return_value()
+                if res == -2:
+                    missing_count += 1
+                    outfile.write(re.sub(f' MISSING ',' STILL MISSING ',line))
+                elif res == 0:
+                    found_count += 1
+
+        while len(ceph.in_flight):
+            oldest_op = ceph.in_flight.popleft()
+            oldest_op['comp'].wait_for_complete()
+            res = oldest_op['comp'].get_return_value()
+            if res == -2:
+                missing_count += 1
                 outfile.write(re.sub(f' MISSING ',' STILL MISSING ',line))
-            else:
-                fcount+=1
+            elif res == 0:
+                found_count += 1
+
     found = "."
-    if fcount:
-        found = ", but {fcount} were found!"
-    logger.critical(f"Verified {mcount} rados objects still missing{found}")
+    if found_count:
+        found = ", but {found_count} were found!"
+    logger.critical(f"Verified {missing_count} rados objects still missing{found}")
     return None
 
 def process_list():
     global bucket_count
-    if not args.bucketlist=='':
+    if args.bucketlist:
         bucket_list = args.bucketlist.split(" ")
         bc = len(bucket_list)
         logger.info(f"Starting processing of {bc} bucket(s)")
@@ -532,7 +565,7 @@ def process_list():
             process_bucket(bucket)
         return None
 
-    if not args.listfile=='':
+    if args.listfile:
         if not os.path.exists(args.listfile):
             logger.critical(f"[CRITICAL] Bucket list file {args.listfile} not present.")
             return None
@@ -591,10 +624,11 @@ def process_list():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-run / Multi-host capable rgw-gap-list tool")
-    parser.add_argument("-a", "--maxage",  default = 7*86400, help="Maximum age (in seconds) of last scan before rescan is forced.  Default 7 days.")
+    parser.add_argument("-a", "--maxage",  default = 7*86400, type=int, help="Maximum age (in seconds) of last scan before rescan is forced.  Default 7 days.")
     parser.add_argument("-b", "--bucketlist",  default = '', help="Optional: Bucket(s) to operate on, default is all buckets, quoted space separated list is supported.")
     parser.add_argument("-c", "--conf", default = '/etc/ceph/ceph.conf', help="Ceph conf file to use, default '/etc/ceph/ceph.conf'")
     parser.add_argument("-d", "--delete",  default = False, action="store_true", help="Remove all sync objects and Exit. Used to clear all syncronized bucket status data.")
+    parser.add_argument("-i", "--inflight",  default = 10000, type=int, help="Maximum number of in-flight ops to allow without a response.  Default: 10000")
     parser.add_argument("-l", "--listfile", default = '', help="Optional: Bucket list file, should be one bucket name per line.")
     parser.add_argument("-n", "--norandom", default = False, action="store_true", help="By default, the script randomizes the list of buckets before processing.  On large bucket count environments, this may cause significant delay before start of processing due to the way the randomizing occurs.  Set '-n' to Not Randomize the list to remove this delay.")
     parser.add_argument("-o", "--outfile", default = f'gap-list-results.{mypid}', help="Optional: results file name, default: gap-list-results.###")
