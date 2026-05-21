@@ -162,6 +162,9 @@ class CephClusterConnection:
                 pass
             logger.info("Connection to the Ceph cluster closed.")
 
+    def null_cb(*args):
+        return
+
     def aio_stat_object(self, object_name=""):
         if not self.cluster:
             logger.critical("Cluster is not connected.")
@@ -170,7 +173,7 @@ class CephClusterConnection:
         # iterate over each pool attempting to stat the object.
         for ioctx in self.pool_ioctl:
             try:
-                return ioctx.aio_stat(object_name,None)
+                return ioctx.aio_stat(object_name,self.null_cb)
 
             except Exception as e:
                 logger.error(f"[Exception] While attempting to stat {object_name}: {e}")
