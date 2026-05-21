@@ -2,13 +2,12 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-05-08
-Version: 2.0
+Last Revision: 2026-05-21
+Version: 2.1
 
 Now using aio_stat()
 
 Performs a Rados Gateway Gap analysis
-(wat?)
 
 Over the years, there have been a couple of bugs which resulted in backing
 user data being deleted for Ceph RGW S3 objects.  It's rare, but has happend.
