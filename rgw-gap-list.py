@@ -287,7 +287,7 @@ class CephClusterConnection:
 
     def end_bucket(self,bucket_name,rados_count,gap_count):
         shardid = self.hash_bucketname(bucket_name)
-        logger.info(f"Setting bucket end metadata to sync shard {shardid}")
+        logger.info(f"Setting bucket end metadata for {bucket_name} to sync shard {shardid}")
         bucket_meta = self.get_bucket_meta(bucket_name)
         if bucket_meta:
             bucket_meta = json.loads(bucket_meta)
@@ -303,7 +303,7 @@ class CephClusterConnection:
             self.touch_sync_state(bucket_name,rados_count,gap_count)
             return True
         else:
-            logger.error(f"Bucket start metadata is missing from shard {shardid}")
+            logger.error(f"Bucket start metadata for {bucket_name} is missing from shard {shardid}")
             return False
 
     def is_bucket_scanning(self,bucket_name):
@@ -492,7 +492,7 @@ def process_bucket(bucket_name):
                 missing_count += 1
                 gap_count += 1
                 outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
-                logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSIN {oldest_op['objname']}")
+                logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSING {oldest_op['objname']}")
 
     while len(ceph.in_flight):
         oldest_op = ceph.in_flight.popleft()
@@ -502,7 +502,7 @@ def process_bucket(bucket_name):
             missing_count+=1
             gap_count+=1
             outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
-            logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSIN {oldest_op['objname']}")
+            logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSING {oldest_op['objname']}")
 
     if bucket_count:
         ceph.end_bucket(bucket_name,line_count,gap_count)
