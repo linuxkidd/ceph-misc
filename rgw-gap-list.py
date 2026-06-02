@@ -537,7 +537,7 @@ def verify_results():
                 res = oldest_op['comp'].get_return_value()
                 if res == -2:
                     missing_count += 1
-                    outfile.write(re.sub(f' MISSING ',' STILL MISSING ',line))
+                    outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']))
                 elif res == 0:
                     found_count += 1
 
@@ -547,7 +547,7 @@ def verify_results():
             res = oldest_op['comp'].get_return_value()
             if res == -2:
                 missing_count += 1
-                outfile.write(re.sub(f' MISSING ',' STILL MISSING ',line))
+                outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']))
             elif res == 0:
                 found_count += 1
 
