@@ -2,8 +2,8 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-05-21
-Version: 2.1
+Last Revision: 2026-09-22
+Version: 2.2
 
 Now using aio_stat()
 
@@ -129,13 +129,16 @@ class CephClusterConnection:
                 logger.critical(f"Sync Pool {self.sync_pool} not present.  Exiting.")
                 exit(1)
 
-            if(len(self.pool_names)>0):
+            if len(self.pool_names)>0:
                 for pool_name in self.pool_names:
                     try:
                         self.pool_ioctl.append(self.cluster.open_ioctx(pool_name))
                     except rados.ObjectNotFound:
-                        logger.critical(f"Pool {pool_name} not present.  Exiting.")
-                        exit(1)
+                        logger.critical(f"Pool {pool_name} not present, skipping.")
+
+            if len(self.pool_ioctl)==0:
+                logger.critical(f"None of the listed pools exist!  Exiting! Tried: {self.pool_names}")
+                exit(1)
 
             return self
         except rados.Error as e:
@@ -634,7 +637,7 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--listfile", default = '', help="Optional: Bucket list file, should be one bucket name per line.")
     parser.add_argument("-n", "--norandom", default = False, action="store_true", help="By default, the script randomizes the list of buckets before processing.  On large bucket count environments, this may cause significant delay before start of processing due to the way the randomizing occurs.  Set '-n' to Not Randomize the list to remove this delay.")
     parser.add_argument("-o", "--outfile", default = f'gap-list-results.{mypid}', help="Optional: results file name, default: gap-list-results.###")
-    parser.add_argument("-p", "--pool", default = 'default.rgw.buckets.data', help="Bucket Data Pool(s), default 'default.rgw.buckets.data', quoted space separated list is supported.")
+    parser.add_argument("-p", "--pool", default = 'default.rgw.buckets.data default.rgw.buckets.non-ec', help="Bucket Data Pool(s), default 'default.rgw.buckets.data default.rgw.buckets.non-ec', quoted space separated list is supported.")
     parser.add_argument("-s", "--syncpool", default = 'default.rgw.buckets.index', help="Synchronization / Queuing pool for the script ot use, default 'default.rgw.buckets.index'.")
     parser.add_argument("-r", "--report",  default = False, action="store_true", help="Generate bucket scrub metadata report.")
     parser.add_argument("-j", "--json",  default = False, action="store_true", help="Use JSON format for bucket scrub metadata report. Only considered with -r")
