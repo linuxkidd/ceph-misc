@@ -173,13 +173,16 @@ class CephClusterConnection:
             raise RuntimeError("Cluster is not connected.")
 
         # iterate over each pool attempting to stat the object.
+        comp = []
         for ioctx in self.pool_ioctl:
             try:
-                return ioctx.aio_stat(object_name,self.null_cb)
+                comp.append(ioctx.aio_stat(object_name,self.null_cb))
 
             except Exception as e:
                 logger.error(f"[Exception] While attempting to stat {object_name}: {e}")
-                return False
+
+        if len(comp):
+            return comp
 
         return False
 
@@ -489,9 +492,14 @@ def process_bucket(bucket_name):
         while len(ceph.in_flight) >= args.inflight:
             processed_count += 1
             oldest_op = ceph.in_flight.popleft()
-            oldest_op['comp'].wait_for_complete()
-            res = oldest_op['comp'].get_return_value()
-            if res == -2:
+            objfound = False
+            for comp in oldest_op['comp']:
+                comp.wait_for_complete()
+                res = comp.get_return_value()
+                if res == 0:
+                    objfound = True
+
+            if not objfound:
                 missing_count += 1
                 gap_count += 1
                 outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
@@ -499,13 +507,18 @@ def process_bucket(bucket_name):
 
     while len(ceph.in_flight):
         oldest_op = ceph.in_flight.popleft()
-        oldest_op['comp'].wait_for_complete()
-        res = oldest_op['comp'].get_return_value()
-        if res == -2:
-            missing_count+=1
-            gap_count+=1
+        for comp in oldest_op['comp']:
+            comp.wait_for_complete()
+            res = comp.get_return_value()
+            if res == 0:
+                objfound = True
+
+        if not objfound:
+            missing_count += 1
+            gap_count += 1
             outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
             logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSING {oldest_op['objname']}")
+
 
     if bucket_count:
         ceph.end_bucket(bucket_name,line_count,gap_count)
@@ -536,22 +549,30 @@ def verify_results():
             ceph.in_flight.append({"comp": ceph.aio_stat_object(robj), "line": line.strip() })
             while len(ceph.in_flight) >= args.inflight:
                 oldest_op = ceph.in_flight.popleft()
-                oldest_op['comp'].wait_for_complete()
-                res = oldest_op['comp'].get_return_value()
-                if res == -2:
+                for comp in oldest_op['comp']:
+                    comp.wait_for_complete()
+                    res = comp.get_return_value()
+                    if res != -2:
+                        objfound = True
+
+                if not objfound:
                     missing_count += 1
                     outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
-                elif res == 0:
+                else:
                     found_count += 1
 
         while len(ceph.in_flight):
             oldest_op = ceph.in_flight.popleft()
-            oldest_op['comp'].wait_for_complete()
-            res = oldest_op['comp'].get_return_value()
-            if res == -2:
+            for comp in oldest_op['comp']:
+                comp.wait_for_complete()
+                res = comp.get_return_value()
+                if res != -2:
+                    objfound = True
+
+            if not objfound:
                 missing_count += 1
                 outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
-            elif res == 0:
+            else:
                 found_count += 1
 
     found = "."
