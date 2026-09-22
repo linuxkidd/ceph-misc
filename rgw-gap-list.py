@@ -245,7 +245,7 @@ class CephClusterConnection:
 
     def hash_bucketname(self,bucketname):
         digest = hashlib.sha256(bucketname.encode("utf-8")).digest()
-        return int.from_bytes(digest,byteorder="big") % shard_count
+        return int.from_bytes(digest,byteorder="big") % self.shard_count
 
     def touch_sync_state(self, bucket_name='', rados_count=0, gap_count=0):
         with rados.WriteOpCtx() as write_op:
