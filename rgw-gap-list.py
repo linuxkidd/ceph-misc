@@ -495,14 +495,12 @@ def process_bucket(bucket_name):
         while len(ceph.in_flight) >= args.inflight:
             processed_count += 1
             oldest_op = ceph.in_flight.popleft()
-            objfound = False
+            results = []
             for comp in oldest_op['comp']:
                 comp.wait_for_complete()
-                res = comp.get_return_value()
-                if res == 0:
-                    objfound = True
+                results.append(comp.get_return_value())
 
-            if not objfound:
+            if results.count(-2) == len(oldest_op['comp']):
                 missing_count += 1
                 gap_count += 1
                 outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
@@ -510,13 +508,12 @@ def process_bucket(bucket_name):
 
     while len(ceph.in_flight):
         oldest_op = ceph.in_flight.popleft()
+        results = []
         for comp in oldest_op['comp']:
             comp.wait_for_complete()
-            res = comp.get_return_value()
-            if res == 0:
-                objfound = True
+            results.append(comp.get_return_value())
 
-        if not objfound:
+        if results.count(-2) == len(oldest_op['comp']):
             missing_count += 1
             gap_count += 1
             outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
@@ -552,13 +549,12 @@ def verify_results():
             ceph.in_flight.append({"comp": ceph.aio_stat_object(robj), "line": line.strip() })
             while len(ceph.in_flight) >= args.inflight:
                 oldest_op = ceph.in_flight.popleft()
+                results = []
                 for comp in oldest_op['comp']:
                     comp.wait_for_complete()
-                    res = comp.get_return_value()
-                    if res != -2:
-                        objfound = True
+                    results.append(comp.get_return_value())
 
-                if not objfound:
+                if results.count(-2) == len(oldest_op['comp']):
                     missing_count += 1
                     outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
                 else:
@@ -566,13 +562,12 @@ def verify_results():
 
         while len(ceph.in_flight):
             oldest_op = ceph.in_flight.popleft()
+            results = []
             for comp in oldest_op['comp']:
                 comp.wait_for_complete()
-                res = comp.get_return_value()
-                if res != -2:
-                    objfound = True
+                results.append(comp.get_return_value())
 
-            if not objfound:
+            if results.count(-2) == len(oldest_op['comp']):
                 missing_count += 1
                 outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
             else:
@@ -580,7 +575,7 @@ def verify_results():
 
     found = "."
     if found_count:
-        found = ", but {found_count} were found!"
+        found = f", but {found_count} were found!"
     logger.critical(f"Verified {missing_count} rados objects still missing{found}")
     return None
 
