@@ -383,7 +383,6 @@ class CephClusterConnection:
             logger.critical("No primary sync object found.  Exiting")
             exit(1)
         else:
-        #    ceph.touch_sync_state(bucket_name='', rados_count=0, gap_count=0)
             logger.debug(f"Found primary sync object: {sync_object_name}")
             bucket_metadata_header = json.loads(self.sync_ioctl.read(sync_object_name).decode("ascii"))
             self.shard_count = bucket_metadata_header["shard_count"]
@@ -395,11 +394,17 @@ class CephClusterConnection:
         else:
             if len(running_hosts):
                 print("\nRunning Hosts:")
+                total_processed=0
                 for host,data in running_hosts.items():
+                    host_processed=0
                     print(f"  {host}")
                     for pid,status in data.items():
                         dt = datetime.fromtimestamp(status['epoch']).strftime('%Y-%m-%d %H:%M:%S')
                         print(f"    PID: {pid}, Bucket: {status['current_bucket']}, Rados Count: {status['rados_count']}, Gap Count: {status['gap_count']}, Bucket Counter: {status['bucket_counter']}, Last Updated: {dt}")
+                        host_processed += status['bucket_counter']
+                        total_processed += status['bucket_counter']
+                    print(f"  Host processed: {host_processed}")
+                print(f"Total processed: {host_processed}")
             else:
                 print("No active hosts.")
 
