@@ -549,6 +549,7 @@ def process_bucket(bucket_name):
                 ceph.in_flight.append(res)
             elif type(res) is int:
                 missing_count += 1
+                gap_count += 1
 
     if bucket_count:
         ceph.end_bucket(bucket_name,line_count,gap_count)
