@@ -168,24 +168,33 @@ class CephClusterConnection:
     def null_cb(*args):
         return
 
-    def aio_stat_object(self, object_name=""):
+    def aio_stat_object(self, object_name="", idx=None):
         if not self.cluster:
             logger.critical("Cluster is not connected.")
             raise RuntimeError("Cluster is not connected.")
 
+        idxstart = 0
+        idxend = len(self.pool_ioctl)
+
         # iterate over each pool attempting to stat the object.
         comp = []
-        for ioctx in self.pool_ioctl:
-            try:
-                comp.append(ioctx.aio_stat(object_name,self.null_cb))
+        if idx is not None:
+            if idx == 0:
+                idxend = 1
+            else:
+                idxstart = 1
 
+        for myidx in range(idxstart,idxend):
+            try:
+                comp.append(self.pool_ioctl[myidx].aio_stat(object_name,self.null_cb))
             except Exception as e:
                 logger.error(f"[Exception] While attempting to stat {object_name}: {e}")
 
-        if len(comp):
+
+        if len(comp) > 0:
             return comp
 
-        return False
+        return None
 
     def delete_sync_objects(self):
         logger.critical(f"Deleting sync objects...")
@@ -446,6 +455,24 @@ def seconds_to_human(secs):
         human.append(f"{seconds} s")
     return " ".join(human)
 
+def check_aio_result(op_obj):
+    results = []
+    for comp in op_obj['comp']:
+        comp.wait_for_complete()
+        results.append(comp.get_return_value())
+
+    if results.count(-2) == len(op_obj['comp']):
+        if op_obj['poolidx'] == 0:
+            logger.info(f"{op_obj['objname']} not found in default pool, checking remaining pools.")
+            op_obj['comp'] = ceph.aio_stat_object(op_obj['objname'],1)
+            op_obj['poolidx'] = 1
+            return op_obj
+        else:
+            outfile.write(f"{op_obj['bucket']} MISSING {op_obj['objname']}\n")
+            logger.error(f"[NOT FOUND] {op_obj['bucket']} MISSING {op_obj['objname']}")
+            return 1
+
+    return None
 
 def process_bucket(bucket_name):
     global bucket_count
@@ -495,35 +522,26 @@ def process_bucket(bucket_name):
             logger.info(f"[Status] Submitted {line_count} rados objects in {deltaStart:.3f} seconds ( last 10k in {deltaLast:.3f} seconds ) for {bucket_name}.")
             ceph.touch_sync_state(bucket_name=bucket_name, rados_count=line_count, gap_count=gap_count)
 
-        ceph.in_flight.append({"comp": ceph.aio_stat_object(object_data[0]), "objname": object_data[0], "bucket": f"s3://{object_data[1]}/{object_data[2]}"})
+        ceph.in_flight.append({"comp": ceph.aio_stat_object(object_data[0],0), "objname": object_data[0], "bucket": f"s3://{object_data[1]}/{object_data[2]}", "poolidx": 0})
 
         while len(ceph.in_flight) >= args.inflight:
             processed_count += 1
-            oldest_op = ceph.in_flight.popleft()
-            results = []
-            for comp in oldest_op['comp']:
-                comp.wait_for_complete()
-                results.append(comp.get_return_value())
+            res = check_aio_result(ceph.in_flight.popleft())
+            if res is not None:
+                if type(res) is dict:
+                    ceph.in_flight.append(res)
+                elif type(res) is int:
+                    missing_count += 1
+                    gap_count += 1
 
-            if results.count(-2) == len(oldest_op['comp']):
-                missing_count += 1
-                gap_count += 1
-                outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
-                logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSING {oldest_op['objname']}")
 
     while len(ceph.in_flight):
-        oldest_op = ceph.in_flight.popleft()
-        results = []
-        for comp in oldest_op['comp']:
-            comp.wait_for_complete()
-            results.append(comp.get_return_value())
-
-        if results.count(-2) == len(oldest_op['comp']):
-            missing_count += 1
-            gap_count += 1
-            outfile.write(f"{oldest_op['bucket']} MISSING {oldest_op['objname']}\n")
-            logger.error(f"[NOT FOUND] {oldest_op['bucket']} MISSING {oldest_op['objname']}")
-
+        res = check_aio_result(ceph.in_flight.popleft())
+        if res is not None:
+            if type(res) is dict:
+                ceph.in_flight.append(res)
+            elif type(res) is int:
+                missing_count += 1
 
     if bucket_count:
         ceph.end_bucket(bucket_name,line_count,gap_count)
