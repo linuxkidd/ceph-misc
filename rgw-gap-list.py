@@ -513,6 +513,11 @@ def process_bucket(bucket_name):
 
     for brl_line in io.TextIOWrapper(brl.stdout, encoding="utf-8"):
         object_data = brl_line.strip().split(fs)
+        if len(args.match.strip()):
+            matchpattern = r"^\b"+re.escape(args.match.strip())+r"\b"
+            if not re.match(matchpattern,object_data[2]):
+                continue
+
         line_count += 1
         if line_count % report_every_x_object_count == 0:
             nowtime = round(time.time(),3)
@@ -579,7 +584,7 @@ def verify_results():
 
                 if results.count(-2) == len(oldest_op['comp']):
                     missing_count += 1
-                    outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
+                    outfile.write(re.sub(' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
                 else:
                     found_count += 1
 
@@ -592,7 +597,7 @@ def verify_results():
 
             if results.count(-2) == len(oldest_op['comp']):
                 missing_count += 1
-                outfile.write(re.sub(f' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
+                outfile.write(re.sub(' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
             else:
                 found_count += 1
 
@@ -677,6 +682,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--delete",  default = False, action="store_true", help="Remove all sync objects and Exit. Used to clear all syncronized bucket status data.")
     parser.add_argument("-i", "--inflight",  default = 10000, type=int, help="Maximum number of in-flight ops to allow without a response.  Default: 10000")
     parser.add_argument("-l", "--listfile", default = '', help="Optional: Bucket list file, should be one bucket name per line.")
+    parser.add_argument("-m", "--match", default = '', help="Specify a prefix match for the object names.  Only objects matching this prefix will be checked for gaps.")
     parser.add_argument("-n", "--norandom", default = False, action="store_true", help="By default, the script randomizes the list of buckets before processing.  On large bucket count environments, this may cause significant delay before start of processing due to the way the randomizing occurs.  Set '-n' to Not Randomize the list to remove this delay.")
     parser.add_argument("-o", "--outfile", default = f'gap-list-results.{mypid}', help="Optional: results file name, default: gap-list-results.###")
     parser.add_argument("-p", "--pool", default = 'default.rgw.buckets.data default.rgw.buckets.non-ec', help="Bucket Data Pool(s), default 'default.rgw.buckets.data default.rgw.buckets.non-ec', quoted space separated list is supported.")
