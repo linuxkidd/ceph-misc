@@ -55,6 +55,8 @@ Usage can be had by passing '--help' to the script.
 - To verify the results of multiple script runs ( whether parallel on a single
   host, or across multiple hosts) by catting all their results into a single
   file, then providing that combined file with the '-x' parameter.
+- You can limit the objects to only those matching a given prefix using the 
+  '-m' parameter.
 
 ## Known Issues:
 - If two separate instances attempt to start processing the same bucket in
