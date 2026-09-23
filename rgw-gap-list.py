@@ -115,6 +115,7 @@ class CephClusterConnection:
         self.sync_pool = sync_pool
         self.sync_ioctl = None
         self.in_flight = deque()
+        self.shard_count = 1
 
     def __enter__(self):
         """Called when entering the 'with' block."""
@@ -188,19 +189,18 @@ class CephClusterConnection:
 
     def delete_sync_objects(self):
         logger.critical(f"Deleting sync objects...")
-        shard_count = 1
         try:
             self.sync_ioctl.stat(sync_object_name)
         except rados.ObjectNotFound:
             pass
         else:
             bucket_metadata_header = json.loads(self.sync_ioctl.read(sync_object_name).decode("ascii"))
-            shard_count = bucket_metadata_header["shard_count"]
+            self.shard_count = bucket_metadata_header["shard_count"]
             logger.info(f"Deleting primary sync object: {sync_object_name}")
             self.sync_ioctl.remove_object(sync_object_name)
 
 
-        for i in range(shard_count):
+        for i in range(self.shard_count):
             try:
                 self.sync_ioctl.stat(f"{sync_object_name}.{i}")
             except rados.ObjectNotFound:
@@ -212,6 +212,7 @@ class CephClusterConnection:
         logger.critical(f"Finished deleting sync objects.")
 
     def populate_sync_objects(self,shard_count=1):
+        self.shard_count=shard_count
         try:
             self.sync_ioctl.stat(sync_object_name)
         except rados.ObjectNotFound:
@@ -226,12 +227,14 @@ class CephClusterConnection:
             running_hosts = self.get_running_hosts()
             logger.info(f'Request {shard_count} shards, existing {bucket_metadata_header["shard_count"]}')
             if shard_count <= ( bucket_metadata_header["shard_count"] * 1.5 ) or running_hosts:
-                shard_count = bucket_metadata_header["shard_count"]
+                self.shard_count = bucket_metadata_header["shard_count"]
+                shard_count = self.shard_count
             else:
                 logger.info("No running hosts, and shard count is too low, resetting sync objects.")
                 self.delete_sync_objects()
                 self.populate_sync_objects(shard_count)
                 return None
+
 
         for i in range(shard_count):
             try:
@@ -353,10 +356,10 @@ class CephClusterConnection:
 
         return running_hosts
 
-    def get_buckets_state(self,shard_count=0):
+    def get_buckets_state(self):
         bucket_state = {}
         with rados.ReadOpCtx() as read_op:
-            for i in range(shard_count):
+            for i in range(self.shard_count):
                 omap_iterator, ret = self.sync_ioctl.get_omap_vals( read_op, start_after="", filter_prefix="", max_return=1000000, omap_key_type=bytes )
                 if not ret==0:
                     logger.critical("Failed to retrieve omap data.")
@@ -383,10 +386,10 @@ class CephClusterConnection:
         #    ceph.touch_sync_state(bucket_name='', rados_count=0, gap_count=0)
             logger.debug(f"Found primary sync object: {sync_object_name}")
             bucket_metadata_header = json.loads(self.sync_ioctl.read(sync_object_name).decode("ascii"))
-            shard_count = bucket_metadata_header["shard_count"]
+            self.shard_count = bucket_metadata_header["shard_count"]
 
         running_hosts = self.get_running_hosts()
-        bucket_state = self.get_buckets_state(shard_count)
+        bucket_state = self.get_buckets_state()
         if args.json:
             print(json.dumps({"active_hosts": running_hosts,"bucket_state": bucket_state}))
         else:
