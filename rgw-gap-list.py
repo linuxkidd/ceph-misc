@@ -452,7 +452,6 @@ def process_bucket(bucket_name):
     global bucket_count_idx
     global missing_count
     bucket_meta = None
-    bucket_count_idx+=1
     gap_count=0
 
     if bucket_count:
@@ -474,6 +473,7 @@ def process_bucket(bucket_name):
             return None
 
     logger.info(f"Processing {bucket_name}")
+    bucket_count_idx += 1
     brl = subprocess.Popen(bucket_radoslist_command + [f"--bucket={bucket_name}"], bufsize=1048576, shell=False, \
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
