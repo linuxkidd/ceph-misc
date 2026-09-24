@@ -131,6 +131,7 @@ class CephClusterConnection:
             self.cluster.connect()
             logger.info("Successfully connected to the Ceph cluster.")
 
+            logger.info(f"Opening ioctl for sync pool {self.sync_pool}")
             try:
                 self.sync_ioctl = self.cluster.open_ioctx(self.sync_pool)
             except rados.ObjectNotFound:
@@ -142,6 +143,7 @@ class CephClusterConnection:
 
             if len(self.pool_names)>0:
                 for pool_name in self.pool_names:
+                    logger.info(f"Opening ioctl for pool {pool_name}")
                     try:
                         self.pool_ioctl.append(self.cluster.open_ioctx(pool_name))
                     except rados.ObjectNotFound:
@@ -628,7 +630,7 @@ def verify_results():
     found_count = 0
     with open(args.verify) as vlist:
         for line in vlist:
-            robj = re.sub(r'^.* MISSING ', '', line.strip())
+            robj = re.sub(r'^.* (STILL |)MISSING ', '', line.strip())
             ceph.in_flight.append({"comp": ceph.aio_stat_object(robj), "line": line.strip() })
             while len(ceph.in_flight) >= args.inflight:
                 oldest_op = ceph.in_flight.popleft()
