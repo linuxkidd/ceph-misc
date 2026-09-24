@@ -138,6 +138,11 @@ class CephClusterConnection:
                         self.pool_ioctl.append(self.cluster.open_ioctx(pool_name))
                     except rados.ObjectNotFound:
                         logger.critical(f"Pool {pool_name} not present, skipping.")
+                    else:
+                        if re.search(r"\.non-ec$",pool_name):
+                            logger.info(f"Pool {pool_name}, adding namespace 'multipart'")
+                            self.pool_ioctl.append(self.cluster.open_ioctx(pool_name))
+                            self.pool_ioctl[len(self.pool_ioctl)-1].set_namespace('multipart')
 
             if len(self.pool_ioctl)==0:
                 logger.critical(f"None of the listed pools exist!  Exiting! Tried: {self.pool_names}")
