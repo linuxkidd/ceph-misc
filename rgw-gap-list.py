@@ -2,8 +2,8 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-09-22
-Version: 2.2
+Last Revision: 2026-09-24
+Version: 3.0
 
 Now using aio_stat()
 
@@ -85,18 +85,19 @@ import sys
 import time
 
 log_levels = [ 50, 30, 20, 10 ]
-bucket_list_command = ["radosgw-admin", "bucket", "list"]
-fs = "\xfe"
-bucket_radoslist_command = ['radosgw-admin', 'bucket', 'radoslist', f'--rgw-obj-fs={fs}']
 mypid = os.getpid()
 myhost = os.uname().nodename
 bucket_count = 0
 bucket_count_idx = 0
 missing_count = 0
 shard_count = 1
+report_every_x_object_count = 10000
+
+fs = "\xfe"
+bucket_list_command = ["radosgw-admin", "bucket", "list"]
+bucket_radoslist_command = ['radosgw-admin', 'bucket', 'radoslist', f'--rgw-obj-fs={fs}']
 sync_object_name = "rgw-gap-list-sync-object"
 results_object_name = "rgw-gap-list-results-object"
-report_every_x_object_count = 10000
 
 def signal_handler(sig, frame):
     print(f'Received {sig}, Terminating')
@@ -145,6 +146,11 @@ class CephClusterConnection:
                         self.pool_ioctl.append(self.cluster.open_ioctx(pool_name))
                     except rados.ObjectNotFound:
                         logger.critical(f"Pool {pool_name} not present, skipping.")
+                    else:
+                        if re.search(r"\.non-ec$",pool_name):
+                            logger.info(f"Pool {pool_name}, adding namespace 'multipart'")
+                            self.pool_ioctl.append(self.cluster.open_ioctx(pool_name))
+                            self.pool_ioctl[len(self.pool_ioctl)-1].set_namespace('multipart')
 
             if len(self.pool_ioctl)==0:
                 logger.critical(f"None of the listed pools exist!  Exiting! Tried: {self.pool_names}")
