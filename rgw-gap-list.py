@@ -420,7 +420,7 @@ class CephClusterConnection:
                         host_processed += status['bucket_counter']
                         total_processed += status['bucket_counter']
                     print(f"  Host processed: {host_processed}")
-                print(f"Total processed: {host_processed}")
+                print(f"Total processed: {total_processed}")
             else:
                 print("No active hosts.")
 
@@ -469,7 +469,7 @@ def check_aio_result(op_obj):
         results.append(comp.get_return_value())
 
     if results.count(-2) == len(op_obj['comp']):
-        if op_obj['poolidx'] == 0:
+        if op_obj['poolidx'] == 0 and len(ceph.pool_ioctl) > 1:
             logger.info(f"{op_obj['objname']} not found in default pool, checking remaining pools.")
             op_obj['comp'] = ceph.aio_stat_object(op_obj['objname'],1)
             op_obj['poolidx'] = 1
@@ -700,7 +700,7 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbosity", default = 0, action="count", help="Optional: Verbosity level, multiple -v's are supported for higher verbosity, example: -vvv")
     parser.add_argument("-x", "--verify", default = '', help="Used to veryify the results file from a prior run, supply the prior run gap-list-results file.")
     args = parser.parse_args()
-    debug_level = min([len(log_levels),args.verbosity])
+    debug_level = min([len(log_levels)-1,args.verbosity])
 
     logging.basicConfig(
         level=log_levels[debug_level],
@@ -734,5 +734,5 @@ if __name__ == "__main__":
     if missing_count:
         logger.critical(f"There were {missing_count} missing rados objects. Results are in {args.outfile}")
     else:
-        logger.info(f"There were mo missing rados objects. Removing results file {args.outfile}")
+        logger.info(f"There were no missing rados objects. Removing results file {args.outfile}")
         os.remove(args.outfile)
