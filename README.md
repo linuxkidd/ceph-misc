@@ -2,6 +2,7 @@
 Miscellaneous scripts I created for various tasks with Ceph.
 
 ## Table of Contents:
+- [rgw-gap-list.py](#rgw-gap-listpy)
 - [rgw-gap-list-by-bucket](#rgw-gap-list-by-bucket)
 - [parse_ms_response_times.awk](#parse_ms_response_timesawk)
 - [colo_lvm_osds.sh](#colo_lvm_osdssh)
@@ -13,6 +14,34 @@ Miscellaneous scripts I created for various tasks with Ceph.
 Missing documents for a script?  Check the file contents for more details.
 
 ## Tool Explanations:
+
+#### rgw-gap-list.py
+A per-bucket, multi-host capable replacement for the upstream `rgw-gap-list`:
+it stats every RADOS object each listed S3 object's manifest names, and lists
+the missing ones as `s3://bucket/key MISSING <rados object>` lines, as before.
+
+It also classifies what it finds, and looks for the other artifacts known RGW
+races leave behind: data queued in GC that a listed object still needs,
+completed multipart uploads that are still open ( an abort of one frees the
+object's data ), index entries that disagree with their heads, and, from an
+`rgw-orphan-list` output file, orphans.  Each finding is one JSON object per
+line in `gap-list-findings.###.jsonl`, with a class ( `data_loss`,
+`pending_loss`, `at_risk`, `inconsistency`, `leak`, `latent_leak` ) and the
+upstream tracker issues that can leave that artifact, ranked by the evidence
+and filtered by the cluster's release.  A summary of both goes to the log.
+
+```
+# every bucket, with the cheap checks
+./rgw-gap-list.py -v
+# a few buckets, adding the per-object index and refcount checks
+./rgw-gap-list.py -v -b "bucket1 bucket2" -I -R
+# classify rgw-orphan-list's output
+./rgw-gap-list.py -v -O orphan-list-20260926000000.out
+```
+
+It needs Python 3.6 or later, the `rados` Python binding, `radosgw-admin`
+and `jq`.  See the script's header and `--help` for the checks, their costs,
+and the options.
 
 #### rgw-gap-list-by-bucket
 An alternative to the upstream `rgw-gap-list` tool which provides the option
