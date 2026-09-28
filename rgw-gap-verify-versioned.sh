@@ -6,7 +6,7 @@
 # output any remaining gaps.
 # 
 # Usage:
-# cat gap-lsit-reults.txt | grep '\] MISSING ' | ./rgw-gap-verify-versioned.sh
+# cat gap-lsit-reults.txt | ./rgw-gap-verify-versioned.sh
 #
 # Results:
 # - Any versioned object that does not have the 'delete' marker set will output
@@ -19,6 +19,10 @@
 #
 
 while IFS= read -r line; do
+    if [ $(echo $line | grep -c '\] (STILL |)MISSING)') -eq 0 ]; then
+        echo $line
+        continue
+    fi
     bucket=$(echo $line | sed -e 's/^s3:..//' -e 's/\/.*$//')
     object=$(echo $line | sed -e 's/^s3:..[^\/]*\///' -e 's/\[[a-zA-Z0-9]*\] MISSING .*$//')
     instance=$(echo $line | sed -e 's/^s3:..[^\[]*\[//' -e 's/\] MISSING .*$//')
