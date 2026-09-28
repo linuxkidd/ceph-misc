@@ -325,7 +325,7 @@ class CephClusterConnection:
     def start_bucket(self,bucket_name):
         shardid = self.hash_bucketname(bucket_name)
         logger.debug(f"Setting bucket start metadata to sync shard {shardid}")
-        sync_metadata = { "hostname": myhost, "pid": mypid, "rados_obj_count": 0, "gap_count": 0, "start_time": round(time.time(),3), "end_time": 0 }
+        sync_metadata = { "hostname": myhost, "pid": mypid, "rados_obj_count": 0, "gap_count": 0, "start_time": round(time.time(),3), "end_time": 0, "match": args.match }
         with rados.WriteOpCtx() as write_op:
             # Set bucket metadata
             self.sync_ioctl.set_omap(write_op,(bucket_name,),( json.dumps(sync_metadata), ))
@@ -479,7 +479,8 @@ class CephClusterConnection:
                     if data['end_time']:
                         dt = datetime.fromtimestamp(data['end_time']).strftime('%Y-%m-%d %H:%M:%S')
                         hum = seconds_to_human(data['total_time_secs'])
-                        print(f"Last Scan Completed: {dt} in {hum}, found {data['gap_count']} gaps.")
+                        scope = f" (prefix: '{data['match']}')" if data.get('match') else ""
+                        print(f"Last Scan Completed: {dt} in {hum}, found {data['gap_count']} gaps{scope}.")
                     elif data['start_time']:
                         dt = datetime.fromtimestamp(data['start_time']).strftime('%Y-%m-%d %H:%M:%S')
                         state = "never completed, process not running"
@@ -549,8 +550,11 @@ def process_bucket(bucket_name):
         bucket_meta = json.loads(bucket_meta)
         dt = datetime.fromtimestamp(bucket_meta["end_time"]).strftime('%Y-%m-%d %H:%M:%S')
         hum = seconds_to_human(args.maxage)
+        scanned_match = bucket_meta.get("match", "")
         if time.time() - bucket_meta["end_time"] > int(args.maxage):
             logger.info(f"Bucket {bucket_name} end time ( {dt} ) is more than {hum} old.  Processing again.")
+        elif not args.match.startswith(scanned_match):
+            logger.info(f"Bucket {bucket_name} last scan ( {dt} ) only covered prefix '{scanned_match}'.  Processing again.")
         else:
             logger.info(f"Bucket {bucket_name} end time ( {dt} ) is less than {hum} old.  Skipping.")
             return None
@@ -569,10 +573,8 @@ def process_bucket(bucket_name):
 
     for brl_line in io.TextIOWrapper(brl.stdout, encoding="utf-8"):
         object_data = brl_line.strip().split(fs)
-        if len(args.match.strip()):
-            matchpattern = r"^\b"+re.escape(args.match.strip())+r"\b"
-            if not re.match(matchpattern,object_data[2]):
-                continue
+        if args.match and not object_data[2].startswith(args.match):
+            continue
 
         line_count += 1
         if line_count % report_every_x_object_count == 0:
