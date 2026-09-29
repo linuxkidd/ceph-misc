@@ -496,10 +496,10 @@ class CephClusterConnection:
 
 def seconds_to_human(secs):
     secs = float(secs)
-    days = int( secs / 86400 )
-    hours = int( ( secs - ( days * 86400 ) ) / 3600 )
-    minutes = int ( ( secs - ( days * 86400 ) - ( hours * 3600 ) ) / 60 )
-    seconds = ( secs - ( days * 86400 ) - ( hours * 3600 ) - ( minutes * 60 ) )
+    days = int(secs // 86400)
+    hours = int((secs % 86400) // 3600)
+    minutes = int((secs % 3600) // 60)
+    seconds = secs % 60
     human = []
     if days:
         human.append(f"{days} d")
@@ -740,7 +740,7 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--conf", default = '/etc/ceph/ceph.conf', help="Ceph conf file to use, default '/etc/ceph/ceph.conf'")
     parser.add_argument("-d", "--delete",  default = False, action="store_true", help="Remove all sync objects and Exit. Used to clear all syncronized bucket status data.")
     parser.add_argument("-g", "--gaps",  default = False, action="store_true", help="Dump the gap results from RADOS object contents.  All other options are ignore ( except -j )")
-    parser.add_argument("-i", "--inflight",  default = 10000, type=int, help="Maximum number of in-flight ops to allow without a response.  Default: 10000")
+    parser.add_argument("-i", "--inflight",  default = 15000, type=int, help="Maximum number of in-flight ops to allow without a response.  Default: 15000")
     parser.add_argument("-l", "--listfile", default = '', help="Optional: Bucket list file, should be one bucket name per line.")
     parser.add_argument("-m", "--match", default = '', help="Specify a prefix match for the object names.  Only objects matching this prefix will be checked for gaps.")
     parser.add_argument("-n", "--norandom", default = False, action="store_true", help="By default, the script randomizes the list of buckets before processing.  On large bucket count environments, this may cause significant delay before start of processing due to the way the randomizing occurs.  Set '-n' to Not Randomize the list to remove this delay.")
