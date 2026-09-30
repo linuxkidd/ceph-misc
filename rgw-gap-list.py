@@ -256,7 +256,7 @@ class CephClusterConnection:
 
         remove_primary = False
         if not bucket_list:
-            bucket_list = list(self.read_gap_headers)
+            bucket_list = list(self.read_gap_header(cache=True))
             remove_primary = True
 
         if len(bucket_list):
