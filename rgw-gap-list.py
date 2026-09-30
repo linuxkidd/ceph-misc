@@ -250,7 +250,7 @@ class CephClusterConnection:
         logger.debug(f"Found primary results object: {RESULTS_OBJECT_NAME}")
 
         running_hosts = self.get_running_hosts()
-        if len(running_hosts):
+        if len(running_hosts) and not bucket_list:
             logger.critical("There are active running processes. Exiting!")
             exit(1)
 
@@ -283,7 +283,7 @@ class CephClusterConnection:
         else:
             logger.info(f"Deleting bucket keys from {RESULTS_OBJECT_NAME}")
             with rados.WriteOpCtx() as op:
-                self.sync_ioctl.rm_omap_keys(op, tuple(bucket_list))
+                self.sync_ioctl.remove_omap_keys(op, tuple(bucket_list))
                 try:
                     self.sync_ioctl.operate_write_op(op, RESULTS_OBJECT_NAME)
                 except rados.ObjectNotFound:
@@ -614,6 +614,7 @@ class CephClusterConnection:
         logger.debug(f"Found primary sync object: {SYNC_OBJECT_NAME}")
         bucket_metadata_header = json.loads(self.sync_ioctl.read(SYNC_OBJECT_NAME).decode("ascii"))
         self.shard_count = bucket_metadata_header["shard_count"]
+        TOTAL_BUCKET_COUNT = bucket_metadata_header["bucket_count"]
 
         running_hosts = self.get_running_hosts()
         bucket_state = self.get_buckets_state()
@@ -625,14 +626,14 @@ class CephClusterConnection:
                 total_processed=0
                 for host,data in running_hosts.items():
                     host_processed=0
-                    print(f"  {host}")
+                    print(f"  {host} ( {len(data.items())} processes )")
                     for pid,status in data.items():
                         dt = datetime.fromtimestamp(status['epoch']).strftime('%Y-%m-%d %H:%M:%S')
                         print(f"    PID: {pid}, Bucket: {status['current_bucket']}, Rados Count: {status['rados_count']}, Gap Count: {status['gap_count']}, Bucket Counter: {status['bucket_counter']}, Last Updated: {dt}")
                         host_processed += status['bucket_counter']
                         total_processed += status['bucket_counter']
                     print(f"  Host processed: {host_processed}")
-                print(f"Total processed: {host_processed}")
+                print(f"Total processed: {total_processed} of {TOTAL_BUCKET_COUNT}")
             else:
                 print("No active hosts.")
 
