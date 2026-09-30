@@ -2,10 +2,10 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-09-24
+Last Revision: 2026-09-30
 Version: 3.0
 
-Now using aio_stat()
+Now storing results in RADOS
 
 Performs a Rados Gateway Gap analysis
 
@@ -28,13 +28,12 @@ This python version attempts to address these shortcoming in the following way:
    along the way.
 2. When ran without any bucket constraints ( either bucket list, or list file ),
    this script maintains state synchronization using dedicated objects in the
-   bucket index pool (by default).
+   bucket index pool in the 'rgw-gap-list' namespace (by default).
 3. Since the state is synchronized via Ceph RADOS... multiple instances can be
    running in parallel, even across different hosts!
 4. This script can also be ran with the '-r' option to generate a report of
-   current running hosts, and state per bucket. ( add '-j' for json output )
-5. This script can verify its own results by passing the '-x' flag followed
-   by the gap-list-result file from a previous run.
+   current running hosts, and state per bucket.
+5. This script can verify its own results by passing the '-x' flag.
 
 Usage can be had by passing '--help' to the script.
 
@@ -51,12 +50,11 @@ Usage can be had by passing '--help' to the script.
 - The bucket data pool(s) and the sync state pool can be overridden with '-p'
   and '-s', respectively.
   -- NOTE -- If you don't use the same pools on all instances of this script,
-  the synchronized state will not work well ( or at all ).
-- To verify the results of multiple script runs ( whether parallel on a single
-  host, or across multiple hosts) by catting all their results into a single
-  file, then providing that combined file with the '-x' parameter.
+  the synchronized state will not work.
+- You can verify the RADOS stored results with the '-x' parameter.
 - You can limit the objects to only those matching a given prefix using the
   '-m' parameter.
+- The '-g', '-r' and '-x' parameters support json output by adding '-j' flag.
 
 ## Known Issues:
 - If two separate instances attempt to start processing the same bucket in
@@ -89,7 +87,6 @@ MYPID = os.getpid()
 MYHOST = os.uname().nodename
 TOTAL_BUCKET_COUNT = 0
 BUCKET_COUNT_IDX = 0
-MISSING_COUNT = 0
 SHARD_COUNT = 1
 REPORT_EVERY_X_OBJECT_COUNT = 10000
 
@@ -120,9 +117,10 @@ class CephClusterConnection:
         self.sync_ioctl = None
         self.in_flight = deque()
         self.shard_count = 1
-        self.results = []
+        self.results = {}
         self.bucket_gap_results_obj_count = 0
         self.bucket_gap_count = 0
+        self.gap_header_data = None
 
     def __enter__(self):
         """Called when entering the 'with' block."""
@@ -237,10 +235,61 @@ class CephClusterConnection:
 
         logger.critical("Finished deleting sync objects.")
 
-    def delete_gap_objects(self):
-        ## Need to finish - linuxkidd
-        logger.critical("Deleting gap restults objects...")
-        return
+    def delete_gap_objects(self,bucket_list=None):
+        if bucket_list:
+            logger.debug(f"Deleting gap results for bucket(s) {bucket_list}")
+        else:
+            logger.critical("Deleting gap restults object(s)...")
+
+        try:
+            self.sync_ioctl.stat(RESULTS_OBJECT_NAME)
+        except rados.ObjectNotFound:
+            logger.critical("No primary results object found.")
+            return
+
+        logger.debug(f"Found primary results object: {RESULTS_OBJECT_NAME}")
+
+        running_hosts = self.get_running_hosts()
+        if len(running_hosts):
+            logger.critical("There are active running processes. Exiting!")
+            exit(1)
+
+        remove_primary = False
+        if not bucket_list:
+            bucket_list = list(self.read_gap_headers)
+            remove_primary = True
+
+        if len(bucket_list):
+            for bucket_name in bucket_list:
+                idx = 1
+                while True:
+                    res_obj = f"{RESULTS_OBJECT_NAME}.{bucket_name}.{idx}"
+                    try:
+                        self.sync_ioctl.stat(res_obj)
+                    except rados.ObjectNotFound:
+                        break
+                    else:
+                        logger.info(f"Deleting sync object: {res_obj}")
+                        self.sync_ioctl.remove_object(res_obj)
+
+        if remove_primary:
+            try:
+                self.sync_ioctl.stat(RESULTS_OBJECT_NAME)
+            except:
+                pass
+            else:
+                logger.info(f"Deleting primary results object: {RESULTS_OBJECT_NAME}")
+                self.sync_ioctl.remove_object(RESULTS_OBJECT_NAME)
+        else:
+            logger.info(f"Deleting bucket keys from {RESULTS_OBJECT_NAME}")
+            with rados.WriteOpCtx() as op:
+                self.sync_ioctl.rm_omap_keys(op, tuple(bucket_list))
+                try:
+                    self.sync_ioctl.operate_write_op(op, RESULTS_OBJECT_NAME)
+                except rados.ObjectNotFound:
+                    logger.info(f"Primary results object not found: {RESULTS_OBJECT_NAME}")
+                    pass
+
 
     def populate_sync_objects(self,shard_count=1):
         self.shard_count=shard_count
@@ -283,7 +332,9 @@ class CephClusterConnection:
 
     def write_result_entry(self, bucket_name='', object_name='', rados_object='', final = False):
         if not final:
-            self.results.append({ "epoch": round(time.time(), 3), "bucket": bucket_name, "user_object": object_name, "rados_object": rados_object })
+            if object_name not in self.results:
+                self.results[object_name]={ "epoch": round(time.time(), 3), "missing_rados_objects": [ ] }
+            self.results[object_name]["missing_rados_objects"].append(rados_object)
             self.bucket_gap_count += 1
         res_size = len(json.dumps(self.results).encode("utf-8"))
         if res_size >= 1<<22 or final: # 4mb
@@ -292,17 +343,17 @@ class CephClusterConnection:
                 res_obj = f"{RESULTS_OBJECT_NAME}.{bucket_name}.{self.bucket_gap_results_obj_count}"
                 logger.info(f"Writing result object {res_obj} of {res_size} bytes")
                 try:
-                    self.sync_ioctl.write_full(SYNC_OBJECT_NAME,json.dumps(self.results).encode("utf-8"))
+                    self.sync_ioctl.write_full(res_obj,json.dumps(self.results).encode("utf-8"))
                 except Exception as e:
                     logger.error(f"Failed to write results to {res_obj}: {e}")
                     logger.critical(f"Dumping result here due to failure to write {res_obj}: {json.dumps(self.results)}")
                 else:
-                    bucket_statistics = { "obj_count": self.bucket_gap_results_obj_count, "gap_count": self.bucket_gap_count, "latest_scan": round(time.time(),3) }
+                    bucket_statistics = { "results_obj_count": self.bucket_gap_results_obj_count, "gap_count": self.bucket_gap_count, "latest_scan": round(time.time(),3) }
                     with rados.WriteOpCtx() as write_op:
-                        self.sync_ioctl.set_omap(write_op,(bucket_name),( json.dumps(bucket_statistics), ))
+                        self.sync_ioctl.set_omap(write_op,(bucket_name, ),( json.dumps(bucket_statistics), ))
                         self.sync_ioctl.operate_write_op(write_op, f"{RESULTS_OBJECT_NAME}")
 
-                self.results=[]
+                self.results={}
                 if final:
                     self.bucket_gap_results_obj_count = 0
             else:
@@ -323,6 +374,7 @@ class CephClusterConnection:
                 pass
 
     def start_bucket(self,bucket_name,match=''):
+        self.delete_gap_objects(bucket_name)
         shardid = self.hash_bucketname(bucket_name)
         logger.debug(f"Setting bucket start metadata to sync shard {shardid}")
         sync_metadata = { "hostname": MYHOST, "pid": MYPID, "rados_obj_count": 0, "gap_count": 0, "start_time": round(time.time(),3), "end_time": 0, "match": match }
@@ -383,35 +435,23 @@ class CephClusterConnection:
 
     def get_running_hosts(self,bucket_keyed=False):
         running_hosts = {}
-        with rados.ReadOpCtx() as read_op:
-            try:
-                bucket_metadata_header = json.loads(self.sync_ioctl.read(SYNC_OBJECT_NAME).decode("ascii"))
-            except rados.ObjectNotFound:
-                logger.critical(f"ERROR: {SYNC_OBJECT_NAME} object not found.  Exiting.")
-                exit(1)
+        running_hosts_raw = self.read_all_omap_vals(SYNC_OBJECT_NAME)
 
-            omap_iterator, ret = self.sync_ioctl.get_omap_vals( read_op, start_after="", filter_prefix="", max_return=100000, omap_key_type=bytes )
-            if not ret==0:
-                logger.critical("Failed to retrieve omap data.")
-                exit(1)
-
-            self.sync_ioctl.operate_read_op(read_op, SYNC_OBJECT_NAME)
-
-            for key, value in omap_iterator:
-                if key.decode("ascii") == f"{MYHOST}.{MYPID}":
-                    continue
-                key_parts = key.decode('ascii').strip().split(".")
-                rhost = key_parts[0]
-                rpid = key_parts[len(key_parts)-1]
-                status = json.loads(value.decode("ascii"))
-                if not rhost in running_hosts and not bucket_keyed:
-                    running_hosts[rhost] = {}
-                if bucket_keyed:
-                    status['hostname']=rhost
-                    status['pid']=rpid
-                    running_hosts[status['current_bucket']] = status
-                else:
-                    running_hosts[rhost][rpid]=json.loads(value.decode("ascii"))
+        for key, value in running_hosts_raw.items():
+            if key == f"{MYHOST}.{MYPID}":
+                continue
+            key_parts = key.strip().split(".")
+            rhost = key_parts[0]
+            rpid = key_parts[len(key_parts)-1]
+            status = value
+            if not rhost in running_hosts and not bucket_keyed:
+                running_hosts[rhost] = {}
+            if bucket_keyed:
+                status['hostname']=rhost
+                status['pid']=rpid
+                running_hosts[status['current_bucket']] = status
+            else:
+                running_hosts[rhost][rpid]=value
 
         return running_hosts
 
@@ -462,10 +502,106 @@ class CephClusterConnection:
 
         return bucket_state
 
-    def generate_gap_list(self):
-        ## Need to finish - linuxkidd
-        logger.critical("Generating gap list report")
-        return
+    def read_gap_header(self, cache = False):
+        if not cache or not self.gap_header_data:
+            if not cache:
+                return self.read_all_omap_vals(RESULTS_OBJECT_NAME)
+            else:
+                self.gap_header_data = self.read_all_omap_vals(RESULTS_OBJECT_NAME)
+        return self.gap_header_data
+
+    def read_gap_results(self,bucket_name,cache = False):
+        bucket_gap_results = {}
+
+        if not cache or not self.gap_header_data:
+            self.gap_header_data = self.read_gap_header(cache)
+
+        if bucket_name in self.gap_header_data:
+            for i in range(1,self.gap_header_data[bucket_name]["results_obj_count"]+1):
+                res_obj = f"{RESULTS_OBJECT_NAME}.{bucket_name}.{i}"
+                bucket_gap_results |= json.loads(self.sync_ioctl.read(res_obj).decode("ascii"))
+
+        if not cache:
+            self.gap_header_data = None
+
+        return bucket_gap_results
+
+    def generate_gap_list(self,verify = False, bucket_list=[]):
+        logger.info("Generating gap list report")
+        gap_results = {}
+        found_count = 0
+        missing_count = 0
+
+        try:
+            self.sync_ioctl.stat(SYNC_OBJECT_NAME)
+        except rados.ObjectNotFound:
+            logger.critical(f"No primary sync object found - {SYNC_OBJECT_NAME}.  Exiting")
+            exit(1)
+
+        logger.debug(f"Found primary sync object: {SYNC_OBJECT_NAME}")
+
+        try:
+            self.sync_ioctl.stat(RESULTS_OBJECT_NAME)
+        except rados.ObjectNotFound:
+            logger.critical(f"No primary results object found - {RESULTS_OBJECT_NAME}.  Exiting")
+            exit(1)
+
+        logger.debug(f"Found results sync object: {RESULTS_OBJECT_NAME}")
+        running_hosts = self.get_running_hosts()
+
+        if len(bucket_list) == 0:
+            bucket_list = list(self.read_gap_header(cache = True))
+
+        for bucket_name in bucket_list:
+            gap_results[bucket_name] = self.read_gap_results(bucket_name,cache = True)
+            if verify:
+                for object_name in list(gap_results[bucket_name].keys()):
+                    object_results = gap_results[bucket_name][object_name]
+                    for rados_object in object_results["missing_rados_objects"]:
+                        logger.debug(f"Verifying {rados_object}")
+                        ceph.in_flight.append({"comp": ceph.aio_stat_object(rados_object), "bucket_name": bucket_name, "rados_object": rados_object, "object_name": object_name })
+
+                    while len(ceph.in_flight):
+                        oldest_op = ceph.in_flight.popleft()
+                        results = []
+                        for comp in oldest_op['comp']:
+                            comp.wait_for_complete()
+                            results.append(comp.get_return_value())
+
+                        if results.count(-2) == len(oldest_op['comp']):
+                            continue
+                        else:
+                            logger.debug(f"Found {oldest_op['rados_object']}")
+                            found_count += 1
+                            gap_results[oldest_op['bucket_name']][oldest_op['object_name']]['missing_rados_objects'].remove(oldest_op['rados_object'])
+                            if len(gap_results[oldest_op['bucket_name']][oldest_op['object_name']]['missing_rados_objects']) == 0:
+                                del gap_results[oldest_op['bucket_name']][oldest_op['object_name']]
+                            if len(gap_results[oldest_op['bucket_name']]) == 0:
+                                del gap_results[oldest_op['bucket_name']]
+
+        if args.json:
+            dump_object = {"active_processes": 1 if len(running_hosts) else 0, "verified": verify }
+            if verify:
+                dump_object['found_count'] = found_count
+            print(json.dumps(dump_object | { "gap_results": gap_results }))
+        else:
+            missing_text = "MISSING"
+            if verify:
+                missing_text = "STILL MISSING"
+            for bucket_name,bucket_data in gap_results.items():
+                for object_name,object_data in bucket_data.items():
+                    for rados_object in object_data['missing_rados_objects']:
+                        print(f"s3://{bucket_name}/{object_name} {missing_text} {rados_object}")
+                        missing_count += 1
+
+        if not args.json:
+            verified="Verified " if verify else ""
+            found=f", but found {found_count} rados objects" if found_count else ""
+            print(f"{verified}Missing {missing_count} rados objects{found}")
+
+        if len(running_hosts) and not args.json:
+            print("WARNING: There are active gap list processes, results may be incomplete.")
+
 
     def generate_report(self):
         logger.info("Generating bucket metadata report")
@@ -474,10 +610,10 @@ class CephClusterConnection:
         except rados.ObjectNotFound:
             logger.critical("No primary sync object found.  Exiting")
             exit(1)
-        else:
-            logger.debug(f"Found primary sync object: {SYNC_OBJECT_NAME}")
-            bucket_metadata_header = json.loads(self.sync_ioctl.read(SYNC_OBJECT_NAME).decode("ascii"))
-            self.shard_count = bucket_metadata_header["shard_count"]
+
+        logger.debug(f"Found primary sync object: {SYNC_OBJECT_NAME}")
+        bucket_metadata_header = json.loads(self.sync_ioctl.read(SYNC_OBJECT_NAME).decode("ascii"))
+        self.shard_count = bucket_metadata_header["shard_count"]
 
         running_hosts = self.get_running_hosts()
         bucket_state = self.get_buckets_state()
@@ -528,16 +664,16 @@ def seconds_to_human(secs):
     hours = int((secs % 86400) // 3600)
     minutes = int((secs % 3600) // 60)
     seconds = secs % 60
-    human = []
+    parts = []
     if days:
-        human.append(f"{days} d")
+        parts.append(f"{days} d")
     if hours:
-        human.append(f"{hours} h")
+        parts.append(f"{hours} h")
     if minutes:
-        human.append(f"{minutes} m")
+        parts.append(f"{minutes} m")
     if seconds > 0:
-        human.append(f"{seconds} s")
-    return " ".join(human)
+        parts.append(f"{seconds} s")
+    return " ".join(parts)
 
 def check_aio_result(op_obj):
     results = []
@@ -553,7 +689,6 @@ def check_aio_result(op_obj):
             return op_obj
         else:
             ceph.write_result_entry(bucket_name=op_obj['bucket'], object_name=op_obj['user_object'], rados_object=op_obj['rados_object'])
-            outfile.write(f"s3://{op_obj['bucket']}/{op_obj['user_object']} MISSING {op_obj['rados_object']}\n")
             logger.error(f"[NOT FOUND] s3://{op_obj['bucket']}/{op_obj['user_object']} MISSING {op_obj['rados_object']}")
             return 1
 
@@ -562,7 +697,6 @@ def check_aio_result(op_obj):
 def process_bucket(bucket_name):
     global TOTAL_BUCKET_COUNT
     global BUCKET_COUNT_IDX
-    global MISSING_COUNT
     global REPORT_EVERY_X_OBJECT_COUNT
     bucket_meta = None
     bucket_gap_count=0
@@ -623,7 +757,6 @@ def process_bucket(bucket_name):
                 if type(res) is dict:
                     ceph.in_flight.append(res)
                 elif type(res) is int:
-                    MISSING_COUNT += 1
                     bucket_gap_count += 1
 
 
@@ -633,7 +766,6 @@ def process_bucket(bucket_name):
             if type(res) is dict:
                 ceph.in_flight.append(res)
             elif type(res) is int:
-                MISSING_COUNT += 1
                 bucket_gap_count += 1
 
     if TOTAL_BUCKET_COUNT:
@@ -641,58 +773,6 @@ def process_bucket(bucket_name):
     nowtime = round(time.time(),3)
     delta = nowtime - starttime
     logger.info(f"[Status] Processed {line_count} rados objects in {delta:.3f} seconds for {bucket_name}.")
-    return None
-
-def verify_results():
-    global MISSING_COUNT
-    if not os.path.exists(args.verify):
-        logger.critical(f"[CRITICAL] Previous results file {args.verify} not present.")
-        return None
-
-    if os.path.getsize(args.verify) == 0:
-        logger.critical(f"[CRITICAL] Previous results file {args.verify} is empty.")
-        return None
-
-    wl = subprocess.Popen(["wc","-l",args.verify],stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    wl_line = wl.stdout.readline().decode("ascii").strip()
-    rados_count = wl_line.split(" ")[0]
-    logger.info(f"Starting verify of {rados_count} rados object(s) from {args.verify}")
-    MISSING_COUNT = 0
-    found_count = 0
-    with open(args.verify) as vlist:
-        for line in vlist:
-            robj = re.sub(r'^.* (STILL |)MISSING ', '', line.strip())
-            ceph.in_flight.append({"comp": ceph.aio_stat_object(robj), "line": line.strip() })
-            while len(ceph.in_flight) >= args.inflight:
-                oldest_op = ceph.in_flight.popleft()
-                results = []
-                for comp in oldest_op['comp']:
-                    comp.wait_for_complete()
-                    results.append(comp.get_return_value())
-
-                if results.count(-2) == len(oldest_op['comp']):
-                    MISSING_COUNT += 1
-                    outfile.write(re.sub(' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
-                else:
-                    found_count += 1
-
-        while len(ceph.in_flight):
-            oldest_op = ceph.in_flight.popleft()
-            results = []
-            for comp in oldest_op['comp']:
-                comp.wait_for_complete()
-                results.append(comp.get_return_value())
-
-            if results.count(-2) == len(oldest_op['comp']):
-                MISSING_COUNT += 1
-                outfile.write(re.sub(' MISSING ',' STILL MISSING ',oldest_op['line']) + "\n")
-            else:
-                found_count += 1
-
-    found = "."
-    if found_count:
-        found = f", but {found_count} were found!"
-    logger.critical(f"Verified {MISSING_COUNT} rados objects still missing{found}")
     return None
 
 def process_list():
@@ -765,7 +845,7 @@ def process_list():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-run / Multi-host capable rgw-gap-list tool")
     parser.add_argument("-a", "--maxage",  default = 7*86400, type=int, help="Maximum age (in seconds) of last scan before rescan is forced.  Default 7 days.")
-    parser.add_argument("-b", "--bucketlist",  default = '', help="Optional: Bucket(s) to operate on, default is all buckets, quoted space separated list is supported.")
+    parser.add_argument("-b", "--bucketlist",  default = '', help="Optional: Bucket(s) to operate on, default is all buckets, quoted space separated list is supported. Supercedes -l.")
     parser.add_argument("-c", "--conf", default = '/etc/ceph/ceph.conf', help="Ceph conf file to use, default '/etc/ceph/ceph.conf'")
     parser.add_argument("-d", "--delete",  default = False, action="store_true", help="Remove all sync objects and Exit. Used to clear all syncronized bucket status data.")
     parser.add_argument("-g", "--gaps",  default = False, action="store_true", help="Dump the gap results from RADOS object contents.  All other options are ignore ( except -j )")
@@ -774,13 +854,12 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--match", default = '', help="Specify a prefix match for the object names.  Only objects matching this prefix will be checked for gaps.")
     parser.add_argument("-n", "--norandom", default = False, action="store_true", help="By default, the script randomizes the list of buckets before processing.  On large bucket count environments, this may cause significant delay before start of processing due to the way the randomizing occurs.  Set '-n' to Not Randomize the list to remove this delay.")
     parser.add_argument("--namespace", default = f'rgw-gap-list', help="What namespace to use for sync / results objects. Default: rgw-gap-list")
-    parser.add_argument("-o", "--outfile", default = f'gap-list-results.{MYPID}', help="Optional: results file name, default: gap-list-results.###")
     parser.add_argument("-p", "--pool", default = 'default.rgw.buckets.data default.rgw.buckets.non-ec', help="Bucket Data Pool(s), default 'default.rgw.buckets.data default.rgw.buckets.non-ec', quoted space separated list is supported.")
     parser.add_argument("-s", "--syncpool", default = 'default.rgw.buckets.index', help="Synchronization / Queuing pool for the script ot use, default 'default.rgw.buckets.index'.")
     parser.add_argument("-r", "--report",  default = False, action="store_true", help="Generate bucket scrub metadata report.")
-    parser.add_argument("-j", "--json",  default = False, action="store_true", help="Use JSON format for bucket scrub metadata report. Only considered with -r and -g")
+    parser.add_argument("-j", "--json",  default = False, action="store_true", help="Use JSON format for bucket scrub metadata report. Only considered with -g, -r and -x")
     parser.add_argument("-v", "--verbosity", default = 0, action="count", help="Optional: Verbosity level, multiple -v's are supported for higher verbosity, example: -vvv")
-    parser.add_argument("-x", "--verify", default = '', help="Used to veryify the results file from a prior run, supply the prior run gap-list-results file.")
+    parser.add_argument("-x", "--verify", default = False, action="store_true", help="Used to veryify the results from a prior run.")
     args = parser.parse_args()
     debug_level = min([len(LOG_LEVELS),args.verbosity])
 
@@ -794,32 +873,24 @@ if __name__ == "__main__":
 
     logger = logging.getLogger('rgw-gap-list')
 
-    if args.gaps:
-        with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
-            ceph.generate_gap_list()
-            exit()
-    elif args.report:
-        with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
+    bucket_list = []
+
+    if args.bucketlist:
+        bucket_list = args.bucketlist.split(" ")
+    elif args.listfile:
+        with open(args.listfile) as blist:
+            for line in blist:
+                bucket_list.append(line.strip())
+
+    with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
+        if args.gaps:
+            ceph.generate_gap_list(bucket_list = bucket_list)
+        elif args.report:
             ceph.generate_report()
-            exit()
-    elif args.delete:
-        with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
-            ceph.delete_sync_objects()
+        elif args.delete:
             ceph.delete_gap_objects()
-            exit()
-
-    if args.verify and args.outfile == f'gap-list-results.{MYPID}':
-        args.outfile = f'gap-list-verify-results.{MYPID}'
-
-    with open(args.outfile,"w") as outfile:
-        with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
-            if args.verify:
-                verify_results()
-            else:
-                process_list()
-
-    if MISSING_COUNT:
-        logger.critical(f"There were {MISSING_COUNT} missing rados objects. Results are in {args.outfile}")
-    else:
-        logger.info(f"There were mo missing rados objects. Removing results file {args.outfile}")
-        os.remove(args.outfile)
+            ceph.delete_sync_objects()
+        elif args.verify:
+            ceph.generate_gap_list(bucket_list = bucket_list, verify=True)
+        else:
+            process_list()
