@@ -414,14 +414,14 @@ class CephClusterConnection:
                 logger.debug(f"Bucket metadata not present.")
                 return False
 
-    def end_bucket(self,bucket_name: str,rados_obj_count: int,gap_count: int) -> None:
+    def end_bucket(self,bucket_name: str,rados_obj_count: int) -> None:
         shardid = self.hash_bucketname(bucket_name)
         logger.info(f"Setting bucket end metadata for {bucket_name} to sync shard {shardid}")
         bucket_meta = self.get_bucket_meta(bucket_name)
         if bucket_meta:
             bucket_meta = json.loads(bucket_meta)
             bucket_meta["end_time"] = round(time.time(),3)
-            bucket_meta["gap_count"] = gap_count
+            bucket_meta["gap_count"] = self.bucket_gap_count
             bucket_meta["rados_obj_count"] = rados_obj_count
             bucket_meta["total_time_secs"] = round(bucket_meta["end_time"] - bucket_meta["start_time"],3)
             logger.debug(f"Bucket meta: {bucket_meta}")
@@ -429,11 +429,13 @@ class CephClusterConnection:
                 # Set bucket metadata
                 self.sync_ioctl.set_omap(write_op,(bucket_name,),( json.dumps(bucket_meta), ))
                 self.sync_ioctl.operate_write_op(write_op, f"{self.SYNC_OBJECT_NAME}.{shardid}")
-            self.touch_sync_state(bucket_name,rados_obj_count,gap_count)
-            return True
+            self.touch_sync_state(bucket_name,rados_obj_count,self.bucket_gap_count)
         else:
             logger.error(f"Bucket start metadata for {bucket_name} is missing from shard {shardid}")
-            return False
+
+        self.bucket_gap_count = 0
+
+
 
     def is_bucket_scanning(self,bucket_name: str) -> bool:
         running_hosts = self.get_running_hosts(bucket_keyed=True)
@@ -723,13 +725,12 @@ def check_aio_result(op_obj: Dict) -> Union[Dict, int, None]:
 
     return None
 
-def output_status(bucket_name: str = '', rados_obj_count: int = 0, delta_start: int = 0, delta_last: int = 0, gap_count: int = 0):
+def output_status(bucket_name: str = '', rados_obj_count: int = 0, delta_start: int = 0, delta_last: int = 0):
         logger.info(f"[Status] Submitted {rados_obj_count} rados objects in {delta_start:.3f} seconds ( last 10k in {delta_last:.3f} seconds ) for {bucket_name}.")
-        ceph.touch_sync_state(bucket_name=bucket_name, rados_obj_count=rados_obj_count, gap_count=gap_count)
+        ceph.touch_sync_state(bucket_name=bucket_name, rados_obj_count=rados_obj_count, gap_count=ceph.bucket_gap_count)
 
 def process_bucket(bucket_name: str, force_scan = False) -> None:
     bucket_meta = None
-    bucket_gap_count=0
 
     if ceph.total_bucket_count:
         logger.info(f"Checking {bucket_name} via sync state")
@@ -771,7 +772,7 @@ def process_bucket(bucket_name: str, force_scan = False) -> None:
             bucket_rados_obj_count += 1
             if bucket_rados_obj_count % ceph.report_every_x_object_count == 0:
                 nowtime = round(time.time(),3)
-                output_status(bucket_name, bucket_rados_obj_count, nowtime - starttime, nowtime - laststatus, bucket_gap_count)
+                output_status(bucket_name, bucket_rados_obj_count, nowtime - starttime, nowtime - laststatus)
                 laststatus = nowtime
 
 
@@ -780,28 +781,21 @@ def process_bucket(bucket_name: str, force_scan = False) -> None:
             while len(ceph.in_flight) >= ceph.max_inflight:
                 processed_count += 1
                 res = check_aio_result(ceph.in_flight.popleft())
-                if res is not None:
-                    if type(res) is dict:
-                        ceph.in_flight.append(res)
-                    elif type(res) is int:
-                        bucket_gap_count += 1
-
+                if type(res) is dict:
+                    ceph.in_flight.append(res)
 
     while len(ceph.in_flight):
         res = check_aio_result(ceph.in_flight.popleft())
-        if res is not None:
-            if type(res) is dict:
-                ceph.in_flight.append(res)
-            elif type(res) is int:
-                bucket_gap_count += 1
+        if type(res) is dict:
+            ceph.in_flight.append(res)
 
     ceph.write_result_object(bucket_name, final = True)
 
-    if ceph.total_bucket_count:
-        ceph.end_bucket(bucket_name,bucket_rados_obj_count,bucket_gap_count)
-
     nowtime = round(time.time(),3)
-    output_status(bucket_name, bucket_rados_obj_count, nowtime - starttime, nowtime - laststatus, bucket_gap_count)
+    output_status(bucket_name, bucket_rados_obj_count, nowtime - starttime, nowtime - laststatus)
+
+    if ceph.total_bucket_count:
+        ceph.end_bucket(bucket_name,bucket_rados_obj_count)
 
 def process_list(bucket_list: list = []) -> None:
     if len(bucket_list):
