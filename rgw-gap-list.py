@@ -265,18 +265,18 @@ class CephClusterConnection:
             bucket_list = list(self.read_gap_header(cache=True))
             remove_primary = True
 
-        if len(bucket_list):
-            for bucket_name in bucket_list:
-                idx = 1
-                while True:
-                    results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{idx}"
-                    try:
-                        self.sync_ioctl.stat(results_object)
-                    except rados.ObjectNotFound:
-                        break
-                    else:
-                        logger.info(f"Deleting sync object: {results_object}")
-                        self.sync_ioctl.remove_object(results_object)
+        for bucket_name in bucket_list:
+            idx = 0
+            while True:
+                idx += 1
+                results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{idx}"
+                try:
+                    self.sync_ioctl.stat(results_object)
+                except rados.ObjectNotFound:
+                    break
+                else:
+                    logger.info(f"Deleting sync object: {results_object}")
+                    self.sync_ioctl.remove_object(results_object)
 
         if remove_primary:
             try:
