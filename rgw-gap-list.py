@@ -2,8 +2,8 @@
 
 """
 By: Michael J. Kidd (linuxkidd)
-Last Revision: 2026-09-30
-Version: 3.0
+Last Revision: 2026-10-01
+Version: 4.0
 
 Now storing results in RADOS
 
@@ -207,13 +207,16 @@ class CephClusterConnection:
             self.sync_ioctl.remove_object(object_name)
             logger.debug(f"Removed {object_name}")
         except rados.ObjectNotFound:
+            logger.debug(f"Removal unnecesary, object {object_name} not present.")
             pass
 
-    def stat_sync_object(self, object_name: str = "") -> Union[Dict, bool]:
+    def stat_sync_object(self, object_name: str = "") ->  bool:
         try:
             self.sync_ioctl.stat(object_name)
+            logger.debug(f"[STAT] Object exists: {object_name}")
             return True
         except rados.ObjectNotFound:
+            logger.debug(f"[STAT] Object does not exist: {object_name}")
             return False
 
     def remove_sync_omap_key(self, object_name: str = "", key_list: List = []) -> None:
@@ -225,8 +228,20 @@ class CephClusterConnection:
                 logger.info(f"Primary results object not found: {object_name}")
                 pass
 
+    def write_sync_object_data(self, object_name: str = "", contents: str = "") -> None:
+        self.sync_ioctl.write_full(object_name, contents)
+
+    def write_sync_object_omap(self, object_name: str = "", key_name: str = "", contents: str = "") -> None:
+        if not self.stat_sync_object(object_name):
+            self.write_sync_data(object_name,"")
+
+        with rados.WriteOpCtx() as write_op:
+            self.sync_ioctl.set_omap(write_op,(key_name, ),( contents, ))
+            self.sync_ioctl.operate_write_op(write_op, object_name)
+
+
 class CephGapScanner:
-    def __init__(self, ceph) -> None:
+    def __init__(self, ceph: CephClusterConnection) -> None:
         self.ceph = ceph
         self.shard_count = 1
         self.results = {}
@@ -251,6 +266,10 @@ class CephGapScanner:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.ceph.cluster:
             self.rm_sync_state()
+
+    def hash_bucket_name(self,bucket_name: str) -> int:
+        digest = hashlib.sha256(bucket_name.encode("utf-8")).digest()
+        return int.from_bytes(digest,byteorder="big") % self.shard_count
 
     def delete_sync_objects(self) -> None:
         logger.critical("Deleting sync objects...")
@@ -301,32 +320,19 @@ class CephGapScanner:
                     break
 
         if remove_all:
-            try:
-                self.ceph.stat_sync_object(self.RESULTS_OBJECT_NAME)
-            except:
-                pass
-            else:
+            if self.ceph.stat_sync_object(self.RESULTS_OBJECT_NAME):
                 logger.info(f"Deleting primary results object: {self.RESULTS_OBJECT_NAME}")
                 self.ceph.remove_sync_object(self.RESULTS_OBJECT_NAME)
         else:
             logger.info(f"Deleting bucket keys from {self.RESULTS_OBJECT_NAME}")
             self.ceph.remove_sync_omap_key(self.RESULTS_OBJECT_NAME,bucket_list)
 
-
     def populate_sync_objects(self,shard_count: int = 1, bucket_count: int = 0) -> None:
         self.shard_count=shard_count
-        try:
-            self.sync_ioctl.stat(self.SYNC_OBJECT_NAME)
-        except rados.ObjectNotFound:
-            logger.info(f"Populating sync objects...")
-            logger.debug(f"Creating primary sync object: {self.SYNC_OBJECT_NAME}")
-            sync_data = { "bucket_count": bucket_count, "shard_count": shard_count, "epoch": round(time.time(),3) }
-            self.sync_ioctl.write_full(self.SYNC_OBJECT_NAME,json.dumps(sync_data).encode("utf-8"))
-            self.touch_sync_state(bucket_name='', rados_obj_count=0)
-        else:
+        if self.ceph.stat_sync_object(self.SYNC_OBJECT_NAME):
             logger.debug(f"Found primary sync object: {self.SYNC_OBJECT_NAME}")
             self.touch_sync_state(bucket_name='', rados_obj_count=0)
-            bucket_metadata_header = json.loads(self.sync_ioctl.read(self.SYNC_OBJECT_NAME).decode("ascii"))
+            bucket_metadata_header = self.ceph.read_object_json_data(self.SYNC_OBJECT_NAME)
             running_hosts = self.get_running_hosts()
             logger.debug(f'Request {shard_count} shards, existing {bucket_metadata_header["shard_count"]}')
             if shard_count <= ( bucket_metadata_header["shard_count"] * 1.5 ) or running_hosts:
@@ -336,20 +342,21 @@ class CephGapScanner:
                 self.delete_sync_objects()
                 self.populate_sync_objects(shard_count, bucket_count)
                 return
+        else:
+            logger.info(f"Populating sync objects...")
+            logger.debug(f"Creating primary sync object: {self.SYNC_OBJECT_NAME}")
+            sync_data = { "bucket_count": bucket_count, "shard_count": shard_count, "epoch": round(time.time(),3) }
+            self.ceph.write_sync_object_data(self.SYNC_OBJECT_NAME,json.dumps(sync_data).encode("utf-8"))
+            self.touch_sync_state(bucket_name='', rados_obj_count=0)
 
         for i in range(shard_count):
-            try:
-                self.sync_ioctl.stat(f"{self.SYNC_OBJECT_NAME}.{i}")
+            if self.ceph.stat_sync_object(f"{self.SYNC_OBJECT_NAME}.{i}"):
                 logger.debug(f"Found sync object: {self.SYNC_OBJECT_NAME}.{i}")
-            except rados.ObjectNotFound:
+            else:
                 logger.debug(f"Creating sync object: {self.SYNC_OBJECT_NAME}.{i}")
-                self.sync_ioctl.write_full(f"{self.SYNC_OBJECT_NAME}.{i}",b'')
+                self.ceph.write_sync_object_data(f"{self.SYNC_OBJECT_NAME}.{i}",b'')
 
         logger.info("Finished populating sync objects...")
-
-    def hash_bucketname(self,bucketname: str) -> int:
-        digest = hashlib.sha256(bucketname.encode("utf-8")).digest()
-        return int.from_bytes(digest,byteorder="big") % self.shard_count
 
     def write_result_object(self, bucket_name: str = '', final: bool = False) -> None:
         if len(self.results):
@@ -358,15 +365,13 @@ class CephGapScanner:
             results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{self.bucket_gap_results_obj_count}"
             logger.info(f"Writing result object {results_object} of {results_stored_size} bytes")
             try:
-                self.sync_ioctl.write_full(results_object,json.dumps(self.results).encode("utf-8"))
+                self.ceph.write_sync_object_data(results_object,json.dumps(self.results).encode("utf-8"))
             except Exception as e:
                 logger.error(f"Failed to write results to {results_object}: {e}")
                 logger.critical(f"Dumping result here due to failure to write {results_object}: {json.dumps(self.results)}")
             else:
                 bucket_statistics = { "results_obj_count": self.bucket_gap_results_obj_count, "gap_count": self.bucket_gap_count, "latest_scan": round(time.time(),3) }
-                with rados.WriteOpCtx() as write_op:
-                    self.sync_ioctl.set_omap(write_op,(bucket_name, ),( json.dumps(bucket_statistics), ))
-                    self.sync_ioctl.operate_write_op(write_op, f"{self.RESULTS_OBJECT_NAME}")
+                self.write_sync_object_omap(self.RESULTS_OBJECT_NAME, bucket_name,json.dumps(bucket_statistics))
 
             self.results={}
             if final:
@@ -401,7 +406,7 @@ class CephGapScanner:
 
     def start_bucket(self,bucket_name,match: str = '') -> None:
         self.delete_gap_objects(bucket_name)
-        shardid = self.hash_bucketname(bucket_name)
+        shardid = self.hash_bucket_name(bucket_name)
         logger.debug(f"Setting bucket start metadata to sync shard {shardid}")
         sync_metadata = { "hostname": MYHOST, "pid": MYPID, "rados_obj_count": 0, "gap_count": 0, "start_time": round(time.time(),3), "end_time": 0, "match": match }
         with rados.WriteOpCtx() as write_op:
@@ -412,7 +417,7 @@ class CephGapScanner:
 
 
     def get_bucket_meta(self,bucket_name: str) -> Optional[bool]:
-        shardid = self.hash_bucketname(bucket_name)
+        shardid = self.hash_bucket_name(bucket_name)
         logger.info(f"Getting bucket metadata from shard {shardid}")
         with rados.ReadOpCtx() as read_op:
             omap_iter, ret = self.sync_ioctl.get_omap_vals_by_keys(read_op, (bucket_name,))
@@ -431,7 +436,7 @@ class CephGapScanner:
                 return False
 
     def end_bucket(self,bucket_name: str,rados_obj_count: int) -> None:
-        shardid = self.hash_bucketname(bucket_name)
+        shardid = self.hash_bucket_name(bucket_name)
         logger.info(f"Setting bucket end metadata for {bucket_name} to sync shard {shardid}")
         bucket_meta = self.get_bucket_meta(bucket_name)
         if bucket_meta:
