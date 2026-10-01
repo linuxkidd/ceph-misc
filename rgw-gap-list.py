@@ -108,25 +108,6 @@ class CephClusterConnection:
         self.sync_pool = sync_pool
         self.sync_ioctl = None
         self.in_flight = deque()
-        self.shard_count = 1
-        self.results = {}
-        self.bucket_gap_results_obj_count = 0
-        self.bucket_gap_count = 0
-        self.gap_header_data = None
-        self.total_bucket_count = 0
-        self.processed_bucket_count = 0
-        self.report_every_x_object_count = 10000
-        self.namespace = "rgw-gap-list"
-        self.max_inflight = 15000
-        self.match = ""
-        self.max_age = 7 * 86400
-        self.json = False
-
-        self.FIELD_SEPARATOR = "\xfe"
-        self.BUCKET_LIST_COMMAND = ["radosgw-admin", "bucket", "list"]
-        self.BUCKET_RADOSLIST_COMMAND = ['radosgw-admin', 'bucket', 'radoslist', f'--rgw-obj-fs={self.FIELD_SEPARATOR}']
-        self.SYNC_OBJECT_NAME = "rgw-gap-list-sync-object"
-        self.RESULTS_OBJECT_NAME = "rgw-gap-list-results-object"
 
     def __enter__(self):
         """Called when entering the 'with' block."""
@@ -211,90 +192,125 @@ class CephClusterConnection:
             except Exception as e:
                 logger.error(f"[Exception] While attempting to stat {object_name}: {e}")
 
-
         if len(comp) > 0:
             return comp
 
         return None
+    def read_object_json_data(self, object_name: str = "") -> Dict:
+        try:
+            return json.loads(self.ceph.sync_ioctl.read(object_name).decode("ascii"))
+        except:
+            return {}
+
+    def remove_sync_object(self, object_name: str = "") -> None:
+        try:
+            self.sync_ioctl.remove_object(object_name)
+            logger.debug(f"Removed {object_name}")
+        except rados.ObjectNotFound:
+            pass
+
+    def stat_sync_object(self, object_name: str = "") -> Union[Dict, bool]:
+        try:
+            self.sync_ioctl.stat(object_name)
+            return True
+        except rados.ObjectNotFound:
+            return False
+
+    def remove_sync_omap_key(self, object_name: str = "", key_list: List = []) -> None:
+        with rados.WriteOpCtx() as op:
+            self.sync_ioctl.remove_omap_keys(op, tuple(key_list))
+            try:
+                self.sync_ioctl.operate_write_op(op, {object_name})
+            except rados.ObjectNotFound:
+                logger.info(f"Primary results object not found: {object_name}")
+                pass
+
+class CephGapScanner:
+    def __init__(self, ceph) -> None:
+        self.ceph = ceph
+        self.shard_count = 1
+        self.results = {}
+        self.bucket_gap_results_obj_count = 0
+        self.bucket_gap_count = 0
+        self.gap_header_data = None
+        self.total_bucket_count = 0
+        self.processed_bucket_count = 0
+        self.report_every_x_object_count = 10000
+        self.namespace = "rgw-gap-list"
+        self.max_inflight = 15000
+        self.match = ""
+        self.max_age = 7 * 86400
+        self.json = False
+
+        self.FIELD_SEPARATOR = "\xfe"
+        self.BUCKET_LIST_COMMAND = ["radosgw-admin", "bucket", "list"]
+        self.BUCKET_RADOSLIST_COMMAND = ['radosgw-admin', 'bucket', 'radoslist', f'--rgw-obj-fs={self.FIELD_SEPARATOR}']
+        self.SYNC_OBJECT_NAME = "rgw-gap-list-sync-object"
+        self.RESULTS_OBJECT_NAME = "rgw-gap-list-results-object"
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.ceph.cluster:
+            self.rm_sync_state()
 
     def delete_sync_objects(self) -> None:
         logger.critical("Deleting sync objects...")
         try:
-            self.sync_ioctl.stat(self.SYNC_OBJECT_NAME)
+            ceph.sync_ioctl.stat(self.SYNC_OBJECT_NAME)
         except rados.ObjectNotFound:
             pass
         else:
-            bucket_metadata_header = json.loads(self.sync_ioctl.read(self.SYNC_OBJECT_NAME).decode("ascii"))
-            self.shard_count = bucket_metadata_header["shard_count"]
+            self.shard_count = self.ceph.read_object_json_data(self.SYNC_OBJECT_NAME)["shard_count"]
             logger.info(f"Deleting primary sync object: {self.SYNC_OBJECT_NAME}")
-            self.sync_ioctl.remove_object(self.SYNC_OBJECT_NAME)
-
+            self.ceph.remove_sync_object(self.SYNC_OBJECT_NAME)
 
         for i in range(self.shard_count):
-            try:
-                self.sync_ioctl.stat(f"{self.SYNC_OBJECT_NAME}.{i}")
-            except rados.ObjectNotFound:
-                pass
-            else:
+            if self.ceph.stat_sync_object(f"{self.SYNC_OBJECT_NAME}.{i}"):
                 logger.info(f"Deleting sync object: {self.SYNC_OBJECT_NAME}.{i}")
-                self.sync_ioctl.remove_object(f"{self.SYNC_OBJECT_NAME}.{i}")
+                self.ceph.remove_sync_object(f"{self.SYNC_OBJECT_NAME}.{i}")
 
         logger.critical("Finished deleting sync objects.")
 
-    def delete_gap_objects(self,bucket_list: Optional[List] = None) -> None:
+    def delete_gap_objects(self,bucket_list: list = []) -> None:
+        remove_all = False
         if bucket_list:
             logger.debug(f"Deleting gap results for bucket(s) {bucket_list}")
         else:
             logger.critical("Deleting gap restults object(s)...")
+            bucket_list = list(self.read_gap_header(cache=True))
+            remove_all = True
 
-        try:
-            self.sync_ioctl.stat(self.RESULTS_OBJECT_NAME)
-        except rados.ObjectNotFound:
-            logger.critical("No primary results object found.")
-            return None
-
-        logger.debug(f"Found primary results object: {self.RESULTS_OBJECT_NAME}")
+        if self.ceph.stat_sync_object(self.RESULTS_OBJECT_NAME):
+            logger.info("Primary results object found.")
+        else:
+            logger.info("Primary results object not found.")
 
         running_hosts = self.get_running_hosts()
-        if len(running_hosts) and not bucket_list:
+        if len(running_hosts) and remove_all:
             logger.critical("There are active running processes. Exiting!")
             exit(1)
 
-        remove_primary = False
-        if not bucket_list:
-            bucket_list = list(self.read_gap_header(cache=True))
-            remove_primary = True
+        for bucket_name in bucket_list:
+            idx = 0
+            while True:
+                idx += 1
+                results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{idx}"
+                if self.ceph.stat_sync_object(results_object):
+                    logger.info(f"Sync object found, deleting: {results_object}")
+                    self.ceph.remove_sync_object(results_object)
+                else:
+                    break
 
-        if len(bucket_list):
-            for bucket_name in bucket_list:
-                idx = 1
-                while True:
-                    results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{idx}"
-                    try:
-                        self.sync_ioctl.stat(results_object)
-                    except rados.ObjectNotFound:
-                        break
-                    else:
-                        logger.info(f"Deleting sync object: {results_object}")
-                        self.sync_ioctl.remove_object(results_object)
-
-        if remove_primary:
+        if remove_all:
             try:
-                self.sync_ioctl.stat(self.RESULTS_OBJECT_NAME)
+                self.ceph.stat_sync_object(self.RESULTS_OBJECT_NAME)
             except:
                 pass
             else:
                 logger.info(f"Deleting primary results object: {self.RESULTS_OBJECT_NAME}")
-                self.sync_ioctl.remove_object(self.RESULTS_OBJECT_NAME)
+                self.ceph.remove_sync_object(self.RESULTS_OBJECT_NAME)
         else:
             logger.info(f"Deleting bucket keys from {self.RESULTS_OBJECT_NAME}")
-            with rados.WriteOpCtx() as op:
-                self.sync_ioctl.remove_omap_keys(op, tuple(bucket_list))
-                try:
-                    self.sync_ioctl.operate_write_op(op, self.RESULTS_OBJECT_NAME)
-                except rados.ObjectNotFound:
-                    logger.info(f"Primary results object not found: {self.RESULTS_OBJECT_NAME}")
-                    pass
+            self.ceph.remove_sync_omap_key(self.RESULTS_OBJECT_NAME,bucket_list)
 
 
     def populate_sync_objects(self,shard_count: int = 1, bucket_count: int = 0) -> None:
@@ -899,18 +915,19 @@ if __name__ == "__main__":
 
     with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
         ceph.namespace = args.namespace.strip()
-        ceph.max_inflight = max(args.inflight,1)
-        ceph.match = args.match
-        ceph.max_age = max(0,int(args.maxage))
-        ceph.json = args.json
-        if args.gaps:
-            ceph.generate_gap_list(bucket_list = bucket_list)
-        elif args.report:
-            ceph.generate_report()
-        elif args.delete:
-            ceph.delete_gap_objects()
-            ceph.delete_sync_objects()
-        elif args.verify:
-            ceph.generate_gap_list(bucket_list = bucket_list, verify=True)
-        else:
-            process_list(bucket_list)
+        with CephGapScanner(ceph) as scanner:
+            scanner.max_inflight = max(args.inflight,1)
+            scanner.match = args.match
+            scanner.max_age = max(0,int(args.maxage))
+            scanner.json = args.json
+            if args.gaps:
+                scanner.generate_gap_list(bucket_list = bucket_list)
+            elif args.report:
+                scanner.generate_report()
+            elif args.delete:
+                scanner.delete_gap_objects()
+                scanner.delete_sync_objects()
+            elif args.verify:
+                scanner.generate_gap_list(bucket_list = bucket_list, verify=True)
+            else:
+                process_list(bucket_list)
