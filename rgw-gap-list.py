@@ -256,6 +256,7 @@ class CephGapScanner:
         self.match = ""
         self.max_age = 7 * 86400
         self.json = False
+        self.skipped_bucket_count = 0
 
         self.FIELD_SEPARATOR = "\xfe"
         self.BUCKET_LIST_COMMAND = ["radosgw-admin", "bucket", "list"]
@@ -556,7 +557,7 @@ class CephGapScanner:
 
         return bucket_gap_results
 
-    def generate_gap_list(self,verify: bool = False, bucket_list: List = []) -> None:
+    def generate_gap_list(self,verify: bool = False, bucket_list: List = [], exclude_bucket_list: List = []) -> None:
         logger.info("Generating gap list report")
         gap_results = {}
         found_count = 0
@@ -583,6 +584,9 @@ class CephGapScanner:
             bucket_list = list(self.read_gap_header(cache = True))
  
         for bucket_name in bucket_list:
+            if bucket_name in exclude_bucket_list:
+                self.skipped_bucket_count += 1
+                continue
             gap_results[bucket_name] = self.read_gap_results(bucket_name,cache = True)
             if verify:
                 for object_name in list(gap_results[bucket_name].keys()):
@@ -816,13 +820,17 @@ def process_bucket(bucket_name: str, force_scan = False) -> None:
     if ceph.total_bucket_count:
         ceph.end_bucket(bucket_name,bucket_rados_obj_count)
 
-def process_list(bucket_list: list = []) -> None:
+def process_list(bucket_list: List = [], exclude_bucket_list: List = []) -> None:
     if len(bucket_list):
         logger.info(f"Starting processing of {len(bucket_list)} bucket(s)")
         ceph.populate_sync_objects(1, len(bucket_list))
 
         for bucket in bucket_list:
-            process_bucket(bucket)
+            if bucket not in exclude_bucket_list:
+                process_bucket(bucket)
+            else:
+                ceph.skipped_bucket_count += 1
+                logger.debug(f"Found {bucket} in exclude_bucket_list, skipping.")
         return None
 
     # If we get here, we're processing -all- buckets
@@ -856,7 +864,11 @@ def process_list(bucket_list: list = []) -> None:
                     bucket = re.sub(r',$','',bucket)
                     bucket = re.sub(r'"$','',bucket)
 
-                    process_bucket(bucket)
+                    if bucket not in exclude_bucket_list:
+                        process_bucket(bucket)
+                    else:
+                        ceph.skipped_bucket_count += 1
+                        logger.debug(f"Found {bucket} in exclude_bucket_list, skipping.")
 
     else: # Randomize the bucket list, this is the default.
         with subprocess.Popen(ceph.BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as bl, \
@@ -868,7 +880,11 @@ def process_list(bucket_list: list = []) -> None:
 
             for sortl_line in io.TextIOWrapper(sortl.stdout, encoding="utf-8"):
                 bucket = sortl_line.strip()
-                process_bucket(bucket)
+                if bucket not in exclude_bucket_list:
+                    process_bucket(bucket)
+                else:
+                    ceph.skipped_bucket_count += 1
+                    logger.debug(f"Found {bucket} in exclude_bucket_list, skipping.")
 
     return None
 
@@ -876,6 +892,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-run / Multi-host capable rgw-gap-list tool")
     parser.add_argument("-a", "--maxage",  default = 7*86400, type=int, help="Maximum age (in seconds) of last scan before rescan is forced.  Default 7 days.")
     parser.add_argument("-b", "--bucketlist",  default = '', help="Optional: Bucket(s) to operate on, default is all buckets, quoted space separated list is supported. Supercedes -l.")
+    parser.add_argument("-e", "--excludelist",  default = '', help="Optional: Bucket(s) to skip, default is process all buckets, quoted space separated list is supported. Supercedes -f.")
+    parser.add_argument("-f", "--excludefile", default = '', help="Optional: File with list of bucket(s) to skip, should be one bucket name per line.")
     parser.add_argument("-c", "--conf", default = '/etc/ceph/ceph.conf', help="Ceph conf file to use, default '/etc/ceph/ceph.conf'")
     parser.add_argument("-d", "--delete",  default = False, action="store_true", help="Remove all sync objects and Exit. Used to clear all syncronized bucket status data.")
     parser.add_argument("-g", "--gaps",  default = False, action="store_true", help="Dump the gap results from RADOS object contents.  All other options are ignore ( except -j )")
@@ -905,6 +923,19 @@ if __name__ == "__main__":
     logger = logging.getLogger('rgw-gap-list')
 
     bucket_list = []
+    exclude_bucket_list = []
+
+    if args.excludelist:
+        exclude_bucket_list = [ bn for bn in args.excludelist.split(" ") if re.match(r"^[a-z0-9][a-z0-9.-]{1,253}[a-z0-9]$",bn) ]
+        if len(exclude_bucket_list) == 0:
+            logger.critical("The provided exclude bucket list did not contain any valid bucket names.  Please confirm proper s3 bucket names are present.")
+            exit(1)
+    elif args.excludefile:
+        with open(args.excludefile) as elist:
+            exclude_bucket_list = [ line.strip() for line in elist if re.match(r"^[a-z0-9][a-z0-9.-]{1,253}[a-z0-9]$",line.strip()) ]
+        if len(exclude_bucket_list) == 0:
+            logger.critical("The provided exclude bucket list file did not contain any valid bucket names.  Please confirm proper s3 bucket names are present.")
+            exit(1)
 
     if args.bucketlist:
         bucket_list = [ bn for bn in args.bucketlist.split(" ") if re.match(r"^[a-z0-9][a-z0-9.-]{1,253}[a-z0-9]$",bn) ]
@@ -926,13 +957,13 @@ if __name__ == "__main__":
             scanner.max_age = max(0,int(args.maxage))
             scanner.json = args.json
             if args.gaps:
-                scanner.generate_gap_list(bucket_list = bucket_list)
+                scanner.generate_gap_list(bucket_list = bucket_list, exclude_bucket_list = exclude_bucket_list)
             elif args.report:
                 scanner.generate_report()
             elif args.delete:
                 scanner.delete_gap_objects()
                 scanner.delete_sync_objects()
             elif args.verify:
-                scanner.generate_gap_list(bucket_list = bucket_list, verify=True)
+                scanner.generate_gap_list(bucket_list = bucket_list, exclude_bucket_list = exclude_bucket_list, verify=True)
             else:
-                process_list(bucket_list)
+                process_list(bucket_list = bucket_list, exclude_bucket_list = exclude_bucket_list)
