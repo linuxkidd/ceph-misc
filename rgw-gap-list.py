@@ -115,8 +115,7 @@ class CephClusterConnection:
         self.gap_header_data = None
         self.total_bucket_count = 0
         self.bucket_count_idx = 0
-        self.shard_count = 1
-        self.report_everY_x_object_count = 10000
+        self.report_every_x_object_count = 10000
         self.namespace = "rgw-gap-list"
         self.max_inflight = 15000
         self.match = ""
@@ -516,7 +515,7 @@ class CephClusterConnection:
                 self.gap_header_data = self.read_all_omap_vals(self.RESULTS_OBJECT_NAME)
         return self.gap_header_data
 
-    def read_gap_results(self,bucket_name: str,cache: bool = False) -> Dict:
+    def read_gap_results(self, bucket_name: str, cache: bool = False) -> Dict:
         bucket_gap_results = {}
 
         if not cache or not self.gap_header_data:
@@ -763,7 +762,7 @@ def process_bucket(bucket_name: str) -> None:
                 continue
 
             line_count += 1
-            if line_count % ceph.report_everY_x_object_count == 0:
+            if line_count % ceph.report_every_x_object_count == 0:
                 nowtime = round(time.time(),3)
                 delta_start = nowtime - starttime
                 delta_last  = nowtime - laststatus
