@@ -332,6 +332,7 @@ class CephClusterConnection:
 
     def write_result_entry(self, bucket_name='', object_name='', rados_object='', final = False):
         if not final:
+            logger.debug(f"Adding gap for s3://{bucket_name}/{object_name} :: {rados_object}")
             if object_name not in self.results:
                 self.results[object_name]={ "epoch": round(time.time(), 3), "missing_rados_objects": [ ] }
             self.results[object_name]["missing_rados_objects"].append(rados_object)
@@ -405,7 +406,6 @@ class CephClusterConnection:
                 return False
 
     def end_bucket(self,bucket_name,rados_count,gap_count):
-        self.write_result_entry(bucket_name, object_name='', rados_object='', final = True)
         shardid = self.hash_bucketname(bucket_name)
         logger.info(f"Setting bucket end metadata for {bucket_name} to sync shard {shardid}")
         bucket_meta = self.get_bucket_meta(bucket_name)
@@ -551,7 +551,7 @@ class CephClusterConnection:
 
         if len(bucket_list) == 0:
             bucket_list = list(self.read_gap_header(cache = True))
-
+ 
         for bucket_name in bucket_list:
             gap_results[bucket_name] = self.read_gap_results(bucket_name,cache = True)
             if verify:
@@ -568,7 +568,7 @@ class CephClusterConnection:
                             comp.wait_for_complete()
                             results.append(comp.get_return_value())
 
-                        if results.count(-2) == len(oldest_op['comp']):
+                        if results.count(0) != len(oldest_op['comp']):
                             continue
                         else:
                             logger.debug(f"Found {oldest_op['rados_object']}")
@@ -580,7 +580,7 @@ class CephClusterConnection:
                                 del gap_results[oldest_op['bucket_name']]
 
         if args.json:
-            dump_object = {"active_processes": 1 if len(running_hosts) else 0, "verified": verify }
+            dump_object = {"active_processes": True if len(running_hosts) else False, "verified": verify }
             if verify:
                 dump_object['found_count'] = found_count
             print(json.dumps(dump_object | { "gap_results": gap_results }))
@@ -604,6 +604,7 @@ class CephClusterConnection:
 
 
     def generate_report(self):
+        global TOTAL_BUCKET_COUNT
         logger.info("Generating bucket metadata report")
         try:
             self.sync_ioctl.stat(SYNC_OBJECT_NAME)
@@ -682,7 +683,7 @@ def check_aio_result(op_obj):
         comp.wait_for_complete()
         results.append(comp.get_return_value())
 
-    if results.count(-2) == len(op_obj['comp']):
+    if results.count(0) != len(op_obj['comp']):
         if op_obj['poolidx'] == 0:
             logger.info(f"{op_obj['rados_object']} not found in default pool, checking remaining pools.")
             op_obj['comp'] = ceph.aio_stat_object(op_obj['rados_object'],1)
@@ -725,8 +726,6 @@ def process_bucket(bucket_name):
 
     logger.info(f"Processing {bucket_name}")
     BUCKET_COUNT_IDX += 1
-    brl = subprocess.Popen(BUCKET_RADOSLIST_COMMAND + [f"--bucket={bucket_name}"], bufsize=1048576, shell=False, \
-                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     line_count = 0
     processed_count = 0
@@ -735,30 +734,32 @@ def process_bucket(bucket_name):
     if TOTAL_BUCKET_COUNT:
         ceph.start_bucket(bucket_name,args.match)
 
-    for brl_line in io.TextIOWrapper(brl.stdout, encoding="utf-8"):
-        object_data = brl_line.strip().split(FIELD_SEPARATOR)
-        if args.match and not object_data[2].startswith(args.match):
-            continue
+    with subprocess.Popen(BUCKET_RADOSLIST_COMMAND + [f"--bucket={bucket_name}"], bufsize=1048576, shell=False, \
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as brl:
+        for brl_line in io.TextIOWrapper(brl.stdout, encoding="utf-8"):
+            object_data = brl_line.strip().split(FIELD_SEPARATOR)
+            if args.match and not object_data[2].startswith(args.match):
+                continue
 
-        line_count += 1
-        if line_count % REPORT_EVERY_X_OBJECT_COUNT == 0:
-            nowtime = round(time.time(),3)
-            deltaStart = nowtime - starttime
-            deltaLast  = nowtime - laststatus
-            laststatus = nowtime
-            logger.info(f"[Status] Submitted {line_count} rados objects in {deltaStart:.3f} seconds ( last 10k in {deltaLast:.3f} seconds ) for {bucket_name}.")
-            ceph.touch_sync_state(bucket_name=bucket_name, rados_count=line_count, gap_count=bucket_gap_count)
+            line_count += 1
+            if line_count % REPORT_EVERY_X_OBJECT_COUNT == 0:
+                nowtime = round(time.time(),3)
+                deltaStart = nowtime - starttime
+                deltaLast  = nowtime - laststatus
+                laststatus = nowtime
+                logger.info(f"[Status] Submitted {line_count} rados objects in {deltaStart:.3f} seconds ( last 10k in {deltaLast:.3f} seconds ) for {bucket_name}.")
+                ceph.touch_sync_state(bucket_name=bucket_name, rados_count=line_count, gap_count=bucket_gap_count)
 
-        ceph.in_flight.append({"comp": ceph.aio_stat_object(object_data[0],0), "rados_object": object_data[0], "bucket": bucket_name, "user_object": object_data[2], "poolidx": 0})
+            ceph.in_flight.append({"comp": ceph.aio_stat_object(object_data[0],0), "rados_object": object_data[0], "bucket": bucket_name, "user_object": object_data[2], "poolidx": 0})
 
-        while len(ceph.in_flight) >= args.inflight:
-            processed_count += 1
-            res = check_aio_result(ceph.in_flight.popleft())
-            if res is not None:
-                if type(res) is dict:
-                    ceph.in_flight.append(res)
-                elif type(res) is int:
-                    bucket_gap_count += 1
+            while len(ceph.in_flight) >= args.inflight:
+                processed_count += 1
+                res = check_aio_result(ceph.in_flight.popleft())
+                if res is not None:
+                    if type(res) is dict:
+                        ceph.in_flight.append(res)
+                    elif type(res) is int:
+                        bucket_gap_count += 1
 
 
     while len(ceph.in_flight):
@@ -768,6 +769,8 @@ def process_bucket(bucket_name):
                 ceph.in_flight.append(res)
             elif type(res) is int:
                 bucket_gap_count += 1
+
+    ceph.write_result_entry(bucket_name, object_name='', rados_object='', final = True)
 
     if TOTAL_BUCKET_COUNT:
         ceph.end_bucket(bucket_name,line_count,bucket_gap_count)
@@ -794,8 +797,8 @@ def process_list():
         if os.path.getsize(args.listfile) == 0:
             logger.critical(f"[CRITICAL] Bucket list file {args.listfile} is empty.")
             return None
-        wl = subprocess.Popen(["wc","-l",args.listfile],stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        wl_line = wl.stdout.readline().decode("ascii").strip()
+        wl = subprocess.check_output(["wc","-l",args.listfile], stderr=subprocess.DEVNULL)
+        wl_line = wl.decode("ascii").strip()
         bc = wl_line.split(" ")[0]
         logger.info(f"Starting processing of {bc} bucket(s) from {args.listfile}")
         with open(args.listfile) as blist:
@@ -806,40 +809,39 @@ def process_list():
 
     # If we get here, we're processing -all- buckets
     # Get a count of the buckets to determine sync object count
-    bl = subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    jql = subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    bc  = subprocess.Popen(["wc","-l"], stdin=jql.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    TOTAL_BUCKET_COUNT = int(bc.stdout.readline().decode("ascii").strip())
+    with subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as bl, \
+        subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as jql, \
+        subprocess.check_output(["wc","-l"], stdin=jql.stdout, stderr=subprocess.DEVNULL) as bc:
+        TOTAL_BUCKET_COUNT = int(bc.decode("ascii").strip())
+
     logger.info(f"Starting processing of {TOTAL_BUCKET_COUNT} bucket(s)")
 
     SHARD_COUNT = int(TOTAL_BUCKET_COUNT/400) + 1
     ceph.populate_sync_objects(SHARD_COUNT)
 
     if args.norandom: # Do not randomize the bucket list, optional.
-        bl = subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        with subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as bl:
+            for bl_line in io.TextIOWrapper(bl.stdout, encoding="utf-8"):
+                bl_line = bl_line.strip()
+                if re.match(r'^"',bl_line):
+                    """
+                    The raw output of bucket list is a json array.  We need to only process lines that start with
+                    double quotes, and then we need to remove the double quotes and ending comma (if present), but
+                    NOT remove any other characters in between.
+                    """
+                    bucket = re.sub(r'^"','',bl_line)
+                    bucket = re.sub(r',$','',bucket)
+                    bucket = re.sub(r'"$','',bucket)
 
-        for bl_line in io.TextIOWrapper(bl.stdout, encoding="utf-8"):
-            bl_line = bl_line.strip()
-            if re.match(r'^"',bl_line):
-                """
-                The raw output of bucket list is a json array.  We need to only process lines that start with
-                double quotes, and then we need to remove the double quotes and ending comma (if present), but
-                NOT remove any other characters in between.
-                """
-                bucket = re.sub(r'^"','',bl_line)
-                bucket = re.sub(r',$','',bucket)
-                bucket = re.sub(r'"$','',bucket)
-
-                process_bucket(bucket)
+                    process_bucket(bucket)
 
     else: # Randomize the bucket list, this is the default.
-        bl = subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        jql = subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        sortl = subprocess.Popen(["sort","--random-sort"],stdin=jql.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-
-        for sortl_line in io.TextIOWrapper(sortl.stdout, encoding="utf-8"):
-            bucket = sortl_line.strip()
-            process_bucket(bucket)
+        with subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as bl, \
+            subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as jql, \
+            subprocess.Popen(["sort","--random-sort"],stdin=jql.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as sortl:
+            for sortl_line in io.TextIOWrapper(sortl.stdout, encoding="utf-8"):
+                bucket = sortl_line.strip()
+                process_bucket(bucket)
 
     return None
 
@@ -862,7 +864,8 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbosity", default = 0, action="count", help="Optional: Verbosity level, multiple -v's are supported for higher verbosity, example: -vvv")
     parser.add_argument("-x", "--verify", default = False, action="store_true", help="Used to veryify the results from a prior run.")
     args = parser.parse_args()
-    debug_level = min([len(LOG_LEVELS),args.verbosity])
+
+    debug_level = min([len(LOG_LEVELS)-1,args.verbosity])
 
     logging.basicConfig(
         level=LOG_LEVELS[debug_level],
