@@ -561,7 +561,7 @@ class CephClusterConnection:
                         logger.debug(f"Verifying {rados_object}")
                         ceph.in_flight.append({"comp": ceph.aio_stat_object(rados_object), "bucket_name": bucket_name, "rados_object": rados_object, "object_name": object_name })
 
-                    while len(ceph.in_flight):
+                    while len(ceph.in_flight) >= args.inflight:
                         oldest_op = ceph.in_flight.popleft()
                         results = []
                         for comp in oldest_op['comp']:
@@ -578,6 +578,25 @@ class CephClusterConnection:
                                 del gap_results[oldest_op['bucket_name']][oldest_op['object_name']]
                             if len(gap_results[oldest_op['bucket_name']]) == 0:
                                 del gap_results[oldest_op['bucket_name']]
+
+                while len(ceph.in_flight):
+                    oldest_op = ceph.in_flight.popleft()
+                    results = []
+                    for comp in oldest_op['comp']:
+                        comp.wait_for_complete()
+                        results.append(comp.get_return_value())
+
+                    if results.count(0) != len(oldest_op['comp']):
+                        continue
+                    else:
+                        logger.debug(f"Found {oldest_op['rados_object']}")
+                        found_count += 1
+                        gap_results[oldest_op['bucket_name']][oldest_op['object_name']]['missing_rados_objects'].remove(oldest_op['rados_object'])
+                        if len(gap_results[oldest_op['bucket_name']][oldest_op['object_name']]['missing_rados_objects']) == 0:
+                            del gap_results[oldest_op['bucket_name']][oldest_op['object_name']]
+                        if len(gap_results[oldest_op['bucket_name']]) == 0:
+                            del gap_results[oldest_op['bucket_name']]
+
 
         if args.json:
             dump_object = {"active_processes": True if len(running_hosts) else False, "verified": verify }
@@ -811,8 +830,13 @@ def process_list():
     # Get a count of the buckets to determine sync object count
     with subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as bl, \
         subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as jql, \
-        subprocess.check_output(["wc","-l"], stdin=jql.stdout, stderr=subprocess.DEVNULL) as bc:
-        TOTAL_BUCKET_COUNT = int(bc.decode("ascii").strip())
+        subprocess.Popen(["wc","-l"], stdin=jql.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as bc:
+
+        bl.stdout.close()
+        jql.stdout.close()
+
+        bc_out, _ = bc.communicate()
+        TOTAL_BUCKET_COUNT = int(bc_out.decode("ascii").strip())
 
     logger.info(f"Starting processing of {TOTAL_BUCKET_COUNT} bucket(s)")
 
@@ -839,6 +863,10 @@ def process_list():
         with subprocess.Popen(BUCKET_LIST_COMMAND, bufsize=1048576, shell=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as bl, \
             subprocess.Popen(["jq","-cr",".[]"],stdin=bl.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as jql, \
             subprocess.Popen(["sort","--random-sort"],stdin=jql.stdout,stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as sortl:
+
+            bl.stdout.close()
+            jql.stdout.close()
+
             for sortl_line in io.TextIOWrapper(sortl.stdout, encoding="utf-8"):
                 bucket = sortl_line.strip()
                 process_bucket(bucket)
@@ -862,7 +890,7 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--report",  default = False, action="store_true", help="Generate bucket scrub metadata report.")
     parser.add_argument("-j", "--json",  default = False, action="store_true", help="Use JSON format for bucket scrub metadata report. Only considered with -g, -r and -x")
     parser.add_argument("-v", "--verbosity", default = 0, action="count", help="Optional: Verbosity level, multiple -v's are supported for higher verbosity, example: -vvv")
-    parser.add_argument("-x", "--verify", default = False, action="store_true", help="Used to veryify the results from a prior run.")
+    parser.add_argument("-x", "--verify", default = False, action="store_true", help="Used to verify the results from a prior run.")
     args = parser.parse_args()
 
     debug_level = min([len(LOG_LEVELS)-1,args.verbosity])
