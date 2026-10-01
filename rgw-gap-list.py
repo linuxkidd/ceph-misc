@@ -714,7 +714,7 @@ def check_aio_result(op_obj: Dict) -> Union[Dict, int, None]:
             return op_obj
         else:
             ceph.write_result_entry(bucket_name=op_obj['bucket'], object_name=op_obj['user_object'], rados_object=op_obj['rados_object'])
-            logger.error(f"[NOT FOUND] s3://{op_obj['bucket']}/{op_obj['user_object']} MISSING {op_obj['rados_object']}")
+            logger.debug(f"[NOT FOUND] s3://{op_obj['bucket']}/{op_obj['user_object']} MISSING {op_obj['rados_object']}")
             return 1
 
     return None
@@ -798,31 +798,11 @@ def process_bucket(bucket_name: str) -> None:
     delta = nowtime - starttime
     logger.info(f"[Status] Processed {line_count} rados objects in {delta:.3f} seconds for {bucket_name}.")
 
-def process_list() -> None:
-    if args.bucketlist:
-        bucket_list = args.bucketlist.split(" ")
-        bc = len(bucket_list)
-        logger.info(f"Starting processing of {bc} bucket(s)")
-        for bucket in args.bucketlist.split(" "):
+def process_list(bucket_list: list = []) -> None:
+    if len(bucket_list):
+        logger.info(f"Starting processing of {len(bucket_list)} bucket(s)")
+        for bucket in bucket_list:
             process_bucket(bucket)
-        return None
-
-    if args.listfile:
-        if not os.path.exists(args.listfile):
-            logger.critical(f"[CRITICAL] Bucket list file {args.listfile} not present.")
-            return None
-
-        if os.path.getsize(args.listfile) == 0:
-            logger.critical(f"[CRITICAL] Bucket list file {args.listfile} is empty.")
-            return None
-        wl = subprocess.check_output(["wc","-l",args.listfile], stderr=subprocess.DEVNULL)
-        wl_line = wl.decode("ascii").strip()
-        bc = wl_line.split(" ")[0]
-        logger.info(f"Starting processing of {bc} bucket(s) from {args.listfile}")
-        with open(args.listfile) as blist:
-            for line in blist:
-                process_bucket(line.strip())
-
         return None
 
     # If we get here, we're processing -all- buckets
@@ -907,11 +887,16 @@ if __name__ == "__main__":
     bucket_list = []
 
     if args.bucketlist:
-        bucket_list = args.bucketlist.split(" ")
+        bucket_list = [ bn for bn in args.bucketlist.split(" ") if re.match(r"^[a-z0-9][a-z0-9.-]{1,253}[a-z0-9]$",bn) ]
+        if len(bucket_list) == 0:
+            logger.critical("The provided bucket list did not contain any valid bucket names.  Please confirm proper s3 bucket names are present.")
+            exit(1)
     elif args.listfile:
         with open(args.listfile) as blist:
-            for line in blist:
-                bucket_list.append(line.strip())
+            bucket_list = [ line.strip() for line in blist if re.match(r"^[a-z0-9][a-z0-9.-]{1,253}[a-z0-9]$",line.strip()) ]
+        if len(bucket_list) == 0:
+            logger.critical("The provided bucket list file did not contain any valid bucket names.  Please confirm proper s3 bucket names are present.")
+            exit(1)
 
     with CephClusterConnection(ceph_conf=args.conf, pool_names=args.pool.split(" "), sync_pool=args.syncpool) as ceph:
         ceph.namespace = args.namespace.strip()
@@ -929,4 +914,4 @@ if __name__ == "__main__":
         elif args.verify:
             ceph.generate_gap_list(bucket_list = bucket_list, verify=True)
         else:
-            process_list()
+            process_list(bucket_list)
