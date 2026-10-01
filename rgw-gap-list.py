@@ -763,10 +763,10 @@ def process_bucket(bucket_name):
             line_count += 1
             if line_count % REPORT_EVERY_X_OBJECT_COUNT == 0:
                 nowtime = round(time.time(),3)
-                deltaStart = nowtime - starttime
-                deltaLast  = nowtime - laststatus
+                delta_start = nowtime - starttime
+                delta_last  = nowtime - laststatus
                 laststatus = nowtime
-                logger.info(f"[Status] Submitted {line_count} rados objects in {deltaStart:.3f} seconds ( last 10k in {deltaLast:.3f} seconds ) for {bucket_name}.")
+                logger.info(f"[Status] Submitted {line_count} rados objects in {delta_start:.3f} seconds ( last 10k in {delta_last:.3f} seconds ) for {bucket_name}.")
                 ceph.touch_sync_state(bucket_name=bucket_name, rados_count=line_count, gap_count=bucket_gap_count)
 
             ceph.in_flight.append({"comp": ceph.aio_stat_object(object_data[0],0), "rados_object": object_data[0], "bucket": bucket_name, "user_object": object_data[2], "poolidx": 0})
