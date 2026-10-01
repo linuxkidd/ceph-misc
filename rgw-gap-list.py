@@ -420,7 +420,7 @@ class CephClusterConnection:
         bucket_meta = self.get_bucket_meta(bucket_name)
         if bucket_meta:
             bucket_meta = json.loads(bucket_meta)
-            bucket_meta.update( { "end_time": round(time.time(),3), "gap_count": self.bucket_gap_count, "rados_obj_count": rados_obj_count, \
+            bucket_meta.update( { "end_time": round(time.time(),3), "gap_count": self.bucket_gap_count, "rados_obj_count": rados_obj_count,
                                 "total_time_secs": round(bucket_meta["end_time"] - bucket_meta["start_time"],3) })
             logger.debug(f"Bucket meta: {bucket_meta}")
             with rados.WriteOpCtx() as write_op:
@@ -434,14 +434,14 @@ class CephClusterConnection:
         self.bucket_gap_count = 0
 
 
-    def is_bucket_scanning(self,bucket_name: str) -> bool:
+    def is_bucket_scanning(self, bucket_name: str) -> bool:
         running_hosts = self.get_running_hosts(bucket_keyed=True)
         if bucket_name in running_hosts:
             return running_hosts[bucket_name]
         else:
             return False
 
-    def get_running_hosts(self,bucket_keyed: bool = False) -> Dict:
+    def get_running_hosts(self, bucket_keyed: bool = False) -> Dict:
         running_hosts = {}
         running_hosts_raw = self.read_all_omap_vals(self.SYNC_OBJECT_NAME)
 
@@ -458,7 +458,7 @@ class CephClusterConnection:
                 status.update( {'hostname': rhost, 'pid': rpid } )
                 running_hosts[status['current_bucket']] = status
             else:
-                running_hosts[rhost][rpid]=value
+                running_hosts[rhost][rpid] = value
 
         return running_hosts
 
