@@ -420,10 +420,8 @@ class CephClusterConnection:
         bucket_meta = self.get_bucket_meta(bucket_name)
         if bucket_meta:
             bucket_meta = json.loads(bucket_meta)
-            bucket_meta["end_time"] = round(time.time(),3)
-            bucket_meta["gap_count"] = self.bucket_gap_count
-            bucket_meta["rados_obj_count"] = rados_obj_count
-            bucket_meta["total_time_secs"] = round(bucket_meta["end_time"] - bucket_meta["start_time"],3)
+            bucket_meta.update( { "end_time": round(time.time(),3), "gap_count": self.bucket_gap_count, "rados_obj_count": rados_obj_count, \
+                                "total_time_secs": round(bucket_meta["end_time"] - bucket_meta["start_time"],3) })
             logger.debug(f"Bucket meta: {bucket_meta}")
             with rados.WriteOpCtx() as write_op:
                 # Set bucket metadata
@@ -434,7 +432,6 @@ class CephClusterConnection:
             logger.error(f"Bucket start metadata for {bucket_name} is missing from shard {shardid}")
 
         self.bucket_gap_count = 0
-
 
 
     def is_bucket_scanning(self,bucket_name: str) -> bool:
