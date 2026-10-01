@@ -269,14 +269,14 @@ class CephClusterConnection:
             for bucket_name in bucket_list:
                 idx = 1
                 while True:
-                    res_obj = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{idx}"
+                    results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{idx}"
                     try:
-                        self.sync_ioctl.stat(res_obj)
+                        self.sync_ioctl.stat(results_object)
                     except rados.ObjectNotFound:
                         break
                     else:
-                        logger.info(f"Deleting sync object: {res_obj}")
-                        self.sync_ioctl.remove_object(res_obj)
+                        logger.info(f"Deleting sync object: {results_object}")
+                        self.sync_ioctl.remove_object(results_object)
 
         if remove_primary:
             try:
@@ -335,35 +335,39 @@ class CephClusterConnection:
         digest = hashlib.sha256(bucketname.encode("utf-8")).digest()
         return int.from_bytes(digest,byteorder="big") % self.shard_count
 
-    def write_result_entry(self, bucket_name: str = '', object_name: str = '', rados_object: str = '', final: bool = False) -> None:
+    def write_result_object(self, bucket_name: str = '', final: bool = False) -> None:
+        if len(self.results):
+            self.bucket_gap_results_obj_count += 1  # Increment first, so 0 means no objects in the bucket status omap.
+            results_stored_size = len(json.dumps(self.results).encode("utf-8"))
+            results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{self.bucket_gap_results_obj_count}"
+            logger.info(f"Writing result object {results_object} of {results_stored_size} bytes")
+            try:
+                self.sync_ioctl.write_full(results_object,json.dumps(self.results).encode("utf-8"))
+            except Exception as e:
+                logger.error(f"Failed to write results to {results_object}: {e}")
+                logger.critical(f"Dumping result here due to failure to write {results_object}: {json.dumps(self.results)}")
+            else:
+                bucket_statistics = { "results_obj_count": self.bucket_gap_results_obj_count, "gap_count": self.bucket_gap_count, "latest_scan": round(time.time(),3) }
+                with rados.WriteOpCtx() as write_op:
+                    self.sync_ioctl.set_omap(write_op,(bucket_name, ),( json.dumps(bucket_statistics), ))
+                    self.sync_ioctl.operate_write_op(write_op, f"{self.RESULTS_OBJECT_NAME}")
+
+            self.results={}
+            if final:
+                self.bucket_gap_results_obj_count = 0
+        else:
+            self.bucket_gap_results_obj_count = 0
+
+    def add_result_entry(self, bucket_name: str = '', object_name: str = '', rados_object: str = '', final: bool = False) -> None:
         if not final:
             logger.debug(f"Adding gap for s3://{bucket_name}/{object_name} :: {rados_object}")
             if object_name not in self.results:
                 self.results[object_name]={ "epoch": round(time.time(), 3), "missing_rados_objects": [ ] }
             self.results[object_name]["missing_rados_objects"].append(rados_object)
             self.bucket_gap_count += 1
-        res_size = len(json.dumps(self.results).encode("utf-8"))
-        if res_size >= 1<<22 or final: # 4mb
-            if len(self.results):
-                self.bucket_gap_results_obj_count += 1  # Increment first, so 0 means no objects in the bucket status omap.
-                res_obj = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{self.bucket_gap_results_obj_count}"
-                logger.info(f"Writing result object {res_obj} of {res_size} bytes")
-                try:
-                    self.sync_ioctl.write_full(res_obj,json.dumps(self.results).encode("utf-8"))
-                except Exception as e:
-                    logger.error(f"Failed to write results to {res_obj}: {e}")
-                    logger.critical(f"Dumping result here due to failure to write {res_obj}: {json.dumps(self.results)}")
-                else:
-                    bucket_statistics = { "results_obj_count": self.bucket_gap_results_obj_count, "gap_count": self.bucket_gap_count, "latest_scan": round(time.time(),3) }
-                    with rados.WriteOpCtx() as write_op:
-                        self.sync_ioctl.set_omap(write_op,(bucket_name, ),( json.dumps(bucket_statistics), ))
-                        self.sync_ioctl.operate_write_op(write_op, f"{self.RESULTS_OBJECT_NAME}")
-
-                self.results={}
-                if final:
-                    self.bucket_gap_results_obj_count = 0
-            else:
-                self.bucket_gap_results_obj_count = 0
+        results_stored_size = len(json.dumps(self.results).encode("utf-8"))
+        if results_stored_size >= 1<<22 or final: # 4mb
+            self.write_result_object(bucket_name, final)
 
     def touch_sync_state(self, bucket_name: str = '', rados_obj_count: int = 0, gap_count: int = 0) -> None:
         with rados.WriteOpCtx() as write_op:
@@ -523,8 +527,8 @@ class CephClusterConnection:
 
         if bucket_name in self.gap_header_data:
             for i in range(1,self.gap_header_data[bucket_name]["results_obj_count"]+1):
-                res_obj = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{i}"
-                bucket_gap_results |= json.loads(self.sync_ioctl.read(res_obj).decode("ascii"))
+                results_object = f"{self.RESULTS_OBJECT_NAME}.{bucket_name}.{i}"
+                bucket_gap_results |= json.loads(self.sync_ioctl.read(results_object).decode("ascii"))
 
         if not cache:
             self.gap_header_data = None
@@ -713,7 +717,7 @@ def check_aio_result(op_obj: Dict) -> Union[Dict, int, None]:
             op_obj['poolidx'] = 1
             return op_obj
         else:
-            ceph.write_result_entry(bucket_name=op_obj['bucket'], object_name=op_obj['user_object'], rados_object=op_obj['rados_object'])
+            ceph.add_result_entry(bucket_name=op_obj['bucket'], object_name=op_obj['user_object'], rados_object=op_obj['rados_object'])
             logger.debug(f"[NOT FOUND] s3://{op_obj['bucket']}/{op_obj['user_object']} MISSING {op_obj['rados_object']}")
             return 1
 
@@ -791,7 +795,7 @@ def process_bucket(bucket_name: str, force_scan = False) -> None:
             elif type(res) is int:
                 bucket_gap_count += 1
 
-    ceph.write_result_entry(bucket_name, object_name='', rados_object='', final = True)
+    ceph.write_result_object(bucket_name, final = True)
 
     if ceph.total_bucket_count:
         ceph.end_bucket(bucket_name,bucket_rados_obj_count,bucket_gap_count)
