@@ -455,8 +455,7 @@ class CephClusterConnection:
             if not rhost in running_hosts and not bucket_keyed:
                 running_hosts[rhost] = {}
             if bucket_keyed:
-                status['hostname']=rhost
-                status['pid']=rpid
+                status.update( {'hostname': rhost, 'pid': rpid } )
                 running_hosts[status['current_bucket']] = status
             else:
                 running_hosts[rhost][rpid]=value
