@@ -503,18 +503,20 @@ class CephClusterConnection:
         return kvdata
 
     def get_buckets_state(self) -> Dict:
-        bucket_state = {}
+        buckets_state = {}
         for i in range(self.shard_count):
-            bucket_state |= self.read_all_omap_vals(f"{self.SYNC_OBJECT_NAME}.{i}")
+            buckets_state |= self.read_all_omap_vals(f"{self.SYNC_OBJECT_NAME}.{i}")
 
-        return bucket_state
+        return buckets_state
 
     def read_gap_header(self, cache: bool = False) -> Dict:
-        if not cache or not self.gap_header_data:
-            if not cache:
-                return self.read_all_omap_vals(self.RESULTS_OBJECT_NAME)
-            else:
-                self.gap_header_data = self.read_all_omap_vals(self.RESULTS_OBJECT_NAME)
+        if not cache:
+            self.gap_header_data = {}
+            return self.read_all_omap_vals(self.RESULTS_OBJECT_NAME)
+
+        if not self.gap_header_data:
+            self.gap_header_data = self.read_all_omap_vals(self.RESULTS_OBJECT_NAME)
+
         return self.gap_header_data
 
     def read_gap_results(self, bucket_name: str, cache: bool = False) -> Dict:
