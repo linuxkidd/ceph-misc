@@ -5,7 +5,7 @@ Miscellaneous scripts I created for various tasks with Ceph.
 The rgw-gap-list.py script has grown a bit bigger than just being a simple script in my misc folder.
 As of now, I've created a new repo for it, please see it here:
 
-[https://github.com/linuxkidd/ceph-rgw-gap-list](Ceph RGW Gap List Repo)
+[Ceph RGW Gap List Repo](https://github.com/linuxkidd/ceph-rgw-gap-list)
 
 
 ## Table of Contents:
