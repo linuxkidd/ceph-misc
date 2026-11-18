@@ -127,8 +127,8 @@ def decode_snap(raw):
         d.off = ns_end
     if v >= 6 and d.remaining():
         d._take(8)  # timestamp
-    if v >= 7 and d.remaining() >= 8:
-        info["child_count"] = d.u64()
+    if v >= 7 and d.remaining() >= 4:
+        info["child_count"] = d.u32()
     return info
 
 
